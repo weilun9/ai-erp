@@ -1,6 +1,6 @@
 from fastapi import APIRouter, FastAPI
 
-from app.api.v1 import auth, health, locations, masterdata, me, people
+from app.api.v1 import auth, health, locations, masterdata, me, people, purchasing, stock
 from app.core.config import get_settings
 from app.core.errors import install_error_handlers
 from app.core.request_context import RequestIdMiddleware
@@ -28,6 +28,8 @@ def create_app() -> FastAPI:
     v1.include_router(locations.router)
     v1.include_router(people.router)
     v1.include_router(masterdata.router)
+    v1.include_router(purchasing.router)
+    v1.include_router(stock.router)
     app.include_router(v1)
     return app
 

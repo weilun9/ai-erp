@@ -62,6 +62,20 @@ class BusinessRule(AppError):
     code = "BUSINESS_RULE"
 
 
+class StockInsufficient(BusinessRule):
+    code = "STOCK_INSUFFICIENT"
+
+
+class DocState(Conflict):
+    """The document's status does not allow this action (e.g. editing a posted document)."""
+
+    code = "DOC_STATE"
+
+
+class DuplicateSupplierDoc(Conflict):
+    code = "DUPLICATE_SUPPLIER_DOC"
+
+
 def _body(code: str, message: str, details: dict[str, Any] | None = None) -> dict[str, Any]:
     return {"error": {"code": code, "message": message, "details": details or {}}}
 

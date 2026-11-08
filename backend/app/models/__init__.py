@@ -13,6 +13,8 @@ from app.models.core import (  # noqa: F401
     user_location_scope,
     user_tag,
 )
+from app.models.docs import DocSequence, PostingJob  # noqa: F401
+from app.models.inv import StockBalance, StockLedger  # noqa: F401
 from app.models.md import (  # noqa: F401
     Customer,
     Item,
@@ -23,3 +25,4 @@ from app.models.md import (  # noqa: F401
     TaxCode,
     Uom,
 )
+from app.models.pur import Grn, GrnLine, SupplierCn, SupplierCnLine  # noqa: F401

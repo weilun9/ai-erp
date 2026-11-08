@@ -46,6 +46,8 @@ def record(
     actor_type: str = "user",
 ) -> None:
     """Add an audit event to the current transaction (committed with the change)."""
+    before = _jsonable(before) if before is not None else None
+    after = _jsonable(after) if after is not None else None
     if before is not None and after is not None:
         changed = {k for k in after if before.get(k) != after.get(k)}
         before = {k: before.get(k) for k in changed}
