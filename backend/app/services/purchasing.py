@@ -13,8 +13,8 @@ Lifecycle (design doc section 4):
 import re
 import uuid
 from dataclasses import dataclass
-from datetime import UTC, date, datetime, timedelta, timezone
-from decimal import ROUND_HALF_UP, Decimal
+from datetime import UTC, date, datetime
+from decimal import Decimal
 from typing import Any
 
 from sqlalchemy import func, or_, select
@@ -28,9 +28,7 @@ from app.core.errors import (
     NotFound,
     VersionConflict,
 )
-from app.localization import pack
 from app.models import (
-    Company,
     Grn,
     GrnLine,
     Item,
@@ -44,11 +42,10 @@ from app.models import (
 )
 from app.services import audit, stock
 from app.services.auth import Principal
+from app.services.doclib import EDITABLE, check_common, line_amounts
+from app.services.doclib import q4 as _q4
+from app.services.doclib import set_totals as _set_totals
 from app.services.numbering import next_doc_no
-
-Q2 = Decimal("0.01")
-Q4 = Decimal("0.0001")
-HUNDRED = Decimal(100)
 
 
 @dataclass(frozen=True)
@@ -69,27 +66,12 @@ KINDS: dict[str, Kind] = {
     ),
 }
 
-EDITABLE = ("DRAFT", "SAVED")
-
 
 def _kind(key: str) -> Kind:
     try:
         return KINDS[key]
     except KeyError as exc:
         raise NotFound("Unknown document type") from exc
-
-
-def _today(db: Session, p: Principal) -> date:
-    offset = pack(db.get(Company, p.company_id).country).UTC_OFFSET_HOURS
-    return datetime.now(timezone(timedelta(hours=offset))).date()
-
-
-def _q2(v: Decimal) -> Decimal:
-    return v.quantize(Q2, rounding=ROUND_HALF_UP)
-
-
-def _q4(v: Decimal) -> Decimal:
-    return v.quantize(Q4, rounding=ROUND_HALF_UP)
 
 
 # --- reading ------------------------------------------------------------------------------
@@ -244,10 +226,8 @@ def _build_lines(
             price, disc, source = _q4(invoice_costs[item.id] * uom.factor), Decimal(0), "INVOICE"
         else:
             price, source = Decimal(0), "MISSING"
-        net_price = price * (HUNDRED - disc) / HUNDRED
-        subtotal = _q2(qty * net_price)
         rate = tax.rate if tax else Decimal(0)
-        line_tax = _q2(subtotal * rate / HUNDRED)
+        subtotal, line_tax = line_amounts(qty, price, disc, rate)
         base_qty = _q4(qty * uom.factor)
         out.append(
             k.line(
@@ -273,12 +253,6 @@ def _build_lines(
     return out
 
 
-def _set_totals(doc) -> None:
-    doc.subtotal = sum((ln.line_subtotal for ln in doc.lines), Decimal(0))
-    doc.tax_total = sum((ln.line_tax for ln in doc.lines), Decimal(0))
-    doc.total = doc.subtotal + doc.tax_total
-
-
 def _snapshot(doc) -> dict[str, Any]:
     return audit.snapshot(
         doc,
@@ -301,8 +275,7 @@ def _snapshot(doc) -> dict[str, Any]:
 
 def _validate_for_save(db: Session, p: Principal, k: Kind, doc) -> list[dict[str, Any]]:
     """Hard rules raise; soft findings come back as warnings for the user to check."""
-    if not doc.lines:
-        raise BusinessRule("A document needs at least one line")
+    check_common(db, p, doc)
     missing = [ln.line_no for ln in doc.lines if ln.price_source == "MISSING"]
     if missing:
         raise BusinessRule(
@@ -310,19 +283,6 @@ def _validate_for_save(db: Session, p: Principal, k: Kind, doc) -> list[dict[str
             "number so the invoice price can be used",
             {"lines": missing, "ref_invoice_no": getattr(doc, "ref_invoice_no", None)},
         )
-    today = _today(db, p)
-    if doc.doc_date > today:
-        raise BusinessRule(
-            "Document date is in the future — check the year on the original",
-            {"doc_date": doc.doc_date.isoformat(), "today": today.isoformat()},
-        )
-    inactive = db.scalars(
-        select(Item.code).where(
-            Item.id.in_({ln.item_id for ln in doc.lines}), Item.is_active.is_(False)
-        )
-    ).all()
-    if inactive:
-        raise BusinessRule("Inactive items on the document", {"items": sorted(inactive)})
 
     warnings: list[dict[str, Any]] = []
     ref = (doc.supplier_ref_no or "").strip()

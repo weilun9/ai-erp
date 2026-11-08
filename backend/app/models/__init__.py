@@ -26,3 +26,13 @@ from app.models.md import (  # noqa: F401
     Uom,
 )
 from app.models.pur import Grn, GrnLine, SupplierCn, SupplierCnLine  # noqa: F401
+from app.models.sal import (  # noqa: F401
+    CustomerCn,
+    CustomerCnLine,
+    DeliveryOrder,
+    DeliveryOrderLine,
+    Quotation,
+    QuotationLine,
+    SalesInvoice,
+    SalesInvoiceLine,
+)
