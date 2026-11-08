@@ -1,6 +1,7 @@
 from fastapi import APIRouter, FastAPI
 
 from app.api.v1 import (
+    ai,
     auth,
     company,
     einvoice,
@@ -12,6 +13,7 @@ from app.api.v1 import (
     me,
     people,
     purchasing,
+    reports,
     sales,
     stock,
     stockdocs,
@@ -52,6 +54,8 @@ def create_app() -> FastAPI:
     v1.include_router(inbox.router)
     v1.include_router(stock.router)
     v1.include_router(stockdocs.router)
+    v1.include_router(reports.router)
+    v1.include_router(ai.router)
     app.include_router(v1)
     return app
 

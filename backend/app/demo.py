@@ -356,6 +356,25 @@ def main() -> None:
     say(f"Warnings: {[x['message'] for x in pv['warnings']] or 'none'}")
     say("Submitting needs MyInvois sandbox credentials (MYINVOIS_* in .env)")
 
+    chapter(9, "AI butler: the model only gets the tools this user may use")
+    for who, pc in (("Owner", office), ("Cashier", counter)):
+        names = [t["name"] for t in pc.get("/ai/tools")]
+        say(f"{who} ({len(names)} tools): {', '.join(names)}")
+    say("Every tool runs as the user in a rolled-back savepoint; drafts wait for Confirm")
+    from app.services.llm import get_chat_model
+
+    if get_chat_model() is None:
+        say("No LLM_* settings, so no live question (set LLM_BASE_URL/API_KEY/MODEL)")
+    else:
+        conv = office.post("/ai/conversations", {})["id"]
+        question = "How much Milo 1kg do we have, and what does Kedai Ah Seng still owe?"
+        turn = office.post(f"/ai/conversations/{conv}/messages", {"content": question})
+        say(f"Q: {question}")
+        for m in turn["messages"]:
+            for c in m.get("tool_calls") or []:
+                say(f"  tool call: {c['name']} {c['arguments']}")
+        say(f"A: {turn['messages'][-1]['content']}")
+
     print(f"\nDone. Data kept in database '{DEMO_DB}'. Explore it with the API docs:")
     print("   set POSTGRES_DB=erp_demo, run uvicorn app.main:app, open /docs, log in as owner")
 

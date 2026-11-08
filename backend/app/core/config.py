@@ -30,6 +30,14 @@ class Settings(BaseSettings):
     # Scan intake
     inbox_dir: str = "var/inbox"  # relative paths are under backend/
     inbox_max_mb: int = 20
+    # AI butler: any OpenAI-compatible chat endpoint with tool calling (DeepSeek, the
+    # company model gateway, Qwen, a local model...). Empty = the butler is off.
+    llm_base_url: str = ""
+    llm_api_key: str = ""
+    llm_model: str = ""
+    llm_timeout_seconds: float = 60
+    llm_max_tool_calls: int = 10
+
     vision_base_url: str = ""
     vision_api_key: str = ""
     vision_model: str = ""

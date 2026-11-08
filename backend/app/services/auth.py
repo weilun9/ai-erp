@@ -132,7 +132,7 @@ def _guess_name(user_agent: str | None) -> str:
 
 
 def create_session(
-    db: Session, user: AppUser, device: Device, remember: bool
+    db: Session, user: AppUser, device: Device, remember: bool, purpose: str = "WEB"
 ) -> tuple[UserSession, str]:
     token = new_opaque_token()
     session = UserSession(
@@ -140,6 +140,7 @@ def create_session(
         device_id=device.id,
         token_hash=hash_token(token),
         remember=remember,
+        purpose=purpose,
         expires_at=None if remember else _now() + SHORT_SESSION,
     )
     db.add(session)
@@ -155,10 +156,12 @@ def _active_session_filter():
     )
 
 
-def find_session_by_token(db: Session, token: str) -> UserSession | None:
+def find_session_by_token(db: Session, token: str, purpose: str = "WEB") -> UserSession | None:
     return db.scalar(
         select(UserSession).where(
-            UserSession.token_hash == hash_token(token), *_active_session_filter()
+            UserSession.token_hash == hash_token(token),
+            UserSession.purpose == purpose,
+            *_active_session_filter(),
         )
     )
 

@@ -168,6 +168,8 @@ class UserSession(UUIDPk, Base):
     )
     token_hash: Mapped[str] = mapped_column(String(64), unique=True)
     remember: Mapped[bool] = mapped_column(Boolean)
+    # WEB = browser login; MCP = token for an AI client (read-only tools, never a web login)
+    purpose: Mapped[str] = mapped_column(String(10), server_default=text("'WEB'"))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     last_used_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
