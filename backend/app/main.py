@@ -1,8 +1,9 @@
 from fastapi import APIRouter, FastAPI
 
-from app.api.v1 import auth, health, locations, me, people
+from app.api.v1 import auth, health, locations, masterdata, me, people
 from app.core.config import get_settings
 from app.core.errors import install_error_handlers
+from app.core.request_context import RequestIdMiddleware
 
 
 def create_app() -> FastAPI:
@@ -17,6 +18,7 @@ def create_app() -> FastAPI:
         openapi_url="/openapi.json" if docs else None,
     )
     install_error_handlers(app)
+    app.add_middleware(RequestIdMiddleware)
 
     app.include_router(health.router)
 
@@ -25,6 +27,7 @@ def create_app() -> FastAPI:
     v1.include_router(me.router)
     v1.include_router(locations.router)
     v1.include_router(people.router)
+    v1.include_router(masterdata.router)
     app.include_router(v1)
     return app
 

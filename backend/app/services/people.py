@@ -11,6 +11,7 @@ from app.core.errors import BadRequest, Conflict, Forbidden, NotFound
 from app.core.permissions import PERMISSIONS
 from app.core.security import hash_password
 from app.models import AppUser, Device, Location, Permission, Tag, user_tag
+from app.services import audit
 from app.services.auth import Principal, revoke_sessions
 
 MIN_PASSWORD = 10
@@ -224,6 +225,15 @@ def create_user(
         updated_by=p.user_id,
     )
     db.add(user)
+    db.flush()
+    audit.record(
+        db,
+        p,
+        "create",
+        "core.app_user",
+        user.id,
+        after=audit.snapshot(user, tags=sorted(t.code for t in tags)),
+    )
     db.commit()
     return user
 
@@ -235,6 +245,15 @@ def set_user_tags(
     user = _get_user(db, p, user_id)
     new_tags = _load_tags(db, p, tag_ids)
     _check_tag_change(p, list(user.tags), new_tags)
+    audit.record(
+        db,
+        p,
+        "assign_tags",
+        "core.app_user",
+        user.id,
+        before={"tags": sorted(t.code for t in user.tags)},
+        after={"tags": sorted(t.code for t in new_tags)},
+    )
     user.tags = new_tags
     user.updated_by = p.user_id
     db.flush()
@@ -308,6 +327,14 @@ def set_device_authorized(
     device.authorized_by = p.user_id if is_authorized else None
     device.authorized_at = datetime.now(UTC) if is_authorized else None
     device.updated_by = p.user_id
+    audit.record(
+        db,
+        p,
+        "authorize" if is_authorized else "deauthorize",
+        "core.device",
+        device.id,
+        after={"name": device.name, "is_authorized": is_authorized},
+    )
     if not is_authorized:
         revoke_sessions(db, device_id=device.id)
     db.commit()

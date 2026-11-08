@@ -22,9 +22,15 @@ from sqlalchemy import select
 
 from app.core.security import hash_password
 from app.db.session import SessionLocal
+from app.localization import SUPPORTED_COUNTRIES
 from app.models import AppUser, Company, Device
 from app.services.auth import revoke_sessions
-from app.services.seed import bootstrap, sync_permissions, sync_system_tags
+from app.services.seed import (
+    bootstrap,
+    sync_localization,
+    sync_permissions,
+    sync_system_tags,
+)
 
 MIN_PASSWORD = 10
 
@@ -49,6 +55,7 @@ def main(argv: list[str] | None = None) -> None:
     b = sub.add_parser("bootstrap", help="Create company, HQ location and the owner")
     b.add_argument("--company-code", required=True)
     b.add_argument("--company-name", required=True)
+    b.add_argument("--country", default="MY", choices=SUPPORTED_COUNTRIES)
     b.add_argument("--hq-code", default="HQ")
     b.add_argument("--hq-name", default="Head Office")
     b.add_argument("--admin", default="admin")
@@ -66,14 +73,16 @@ def main(argv: list[str] | None = None) -> None:
             sync_permissions(db)
             for company in db.scalars(select(Company)):
                 sync_system_tags(db, company)
+                sync_localization(db, company)
             db.commit()
-            print("Permissions and built-in tags synced.")
+            print("Permissions, built-in tags, tax codes and units synced.")
 
         elif args.cmd == "bootstrap":
             user = bootstrap(
                 db,
                 company_code=args.company_code,
                 company_name=args.company_name,
+                country=args.country,
                 hq_code=args.hq_code,
                 hq_name=args.hq_name,
                 admin_username=args.admin,

@@ -5,7 +5,8 @@ from sqlalchemy.orm import Session
 
 from app.core.permissions import PERMISSIONS, TAG_TEMPLATES
 from app.core.security import hash_password
-from app.models import AppUser, Company, Location, Permission, Tag
+from app.localization import pack
+from app.models import AppUser, Company, Location, Permission, Tag, TaxCode, Uom
 
 
 def sync_permissions(db: Session) -> None:
@@ -48,11 +49,36 @@ def sync_system_tags(db: Session, company: Company) -> dict[str, Tag]:
     return tags
 
 
+def sync_localization(db: Session, company: Company) -> None:
+    """Add the country's default tax codes and units if missing (never overwrites edits)."""
+    cp = pack(company.country)
+    have_tax = set(db.scalars(select(TaxCode.code).where(TaxCode.company_id == company.id)))
+    for t in cp.DEFAULT_TAX_CODES:
+        if t.code not in have_tax:
+            db.add(
+                TaxCode(
+                    company_id=company.id,
+                    code=t.code,
+                    name=t.name,
+                    rate=t.rate,
+                    einvoice_tax_type=t.einvoice_tax_type,
+                )
+            )
+    have_uom = set(db.scalars(select(Uom.code).where(Uom.company_id == company.id)))
+    for u in cp.DEFAULT_UOMS:
+        if u.code not in have_uom:
+            db.add(
+                Uom(company_id=company.id, code=u.code, name=u.name, einvoice_code=u.einvoice_code)
+            )
+    db.flush()
+
+
 def bootstrap(
     db: Session,
     *,
     company_code: str,
     company_name: str,
+    country: str = "MY",
     hq_code: str,
     hq_name: str,
     admin_username: str,
@@ -64,10 +90,18 @@ def bootstrap(
 
     company = db.scalar(select(Company).where(Company.code == company_code))
     if company is None:
-        company = Company(code=company_code, name=company_name)
+        pack(country)  # fail fast on unsupported countries
+        company = Company(
+            code=company_code,
+            name=company_name,
+            country=country,
+            base_currency=pack(country).CURRENCY,
+            country_code=pack(country).COUNTRY_ISO3,
+        )
         db.add(company)
         db.flush()
     tags = sync_system_tags(db, company)
+    sync_localization(db, company)
 
     hq = db.scalar(
         select(Location).where(Location.company_id == company.id, Location.code == hq_code)

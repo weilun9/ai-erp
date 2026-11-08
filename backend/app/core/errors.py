@@ -51,6 +51,17 @@ class Conflict(AppError):
     code = "CONFLICT"
 
 
+class VersionConflict(Conflict):
+    """Someone else saved this record after you loaded it; reload and retry."""
+
+    code = "VERSION_CONFLICT"
+
+
+class BusinessRule(AppError):
+    status_code = 422
+    code = "BUSINESS_RULE"
+
+
 def _body(code: str, message: str, details: dict[str, Any] | None = None) -> dict[str, Any]:
     return {"error": {"code": code, "message": message, "details": details or {}}}
 

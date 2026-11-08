@@ -20,6 +20,8 @@ PERMISSIONS: dict[str, str] = {
     "core.tag.assign": "Assign tags to employees",
     "core.device.manage": "Approve computers for login and sign them out",
     # master data
+    "md.setup.read": "View tax codes, units and item categories",
+    "md.setup.manage": "Edit tax codes, units and item categories",
     "md.item.read": "View items",
     "md.item.manage": "Create and edit items",
     "md.supplier.read": "View suppliers",
@@ -90,12 +92,13 @@ TAG_TEMPLATES: dict[str, TagTemplate] = {
             "书记",
             "#1677ff",
             False,
-            _match("md.", "pur.", "sal.", "inv.", "core.issue.")
+            (_match("md.", "pur.", "sal.", "inv.", "core.issue.") - {"md.setup.manage"})
             | {
                 "core.location.read",
                 "report.run",
                 "field.cost.read",
                 "field.finance.read",
+                "field.pii.read",
                 "ai.chat.use",
                 "ai.write.enabled",
                 "ai.vision.use",

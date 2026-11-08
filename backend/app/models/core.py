@@ -18,6 +18,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
 from app.models.mixins import AuditColumns, UUIDPk
+from app.models.party import EinvoiceParty
 
 SCHEMA = "core"
 
@@ -25,14 +26,17 @@ LOCATION_TYPES = ("STORE", "WAREHOUSE", "ECOM")
 LANGUAGES = ("zh", "en", "ms")
 
 
-class Company(UUIDPk, AuditColumns, Base):
+class Company(UUIDPk, AuditColumns, EinvoiceParty, Base):
+    """Our own company; its party fields are the e-invoice supplier block."""
+
     __tablename__ = "company"
     __table_args__ = {"schema": SCHEMA}
 
     code: Mapped[str] = mapped_column(String(20), unique=True)
     name: Mapped[str] = mapped_column(String(200))
-    tax_no: Mapped[str | None] = mapped_column(String(50))
-    sst_no: Mapped[str | None] = mapped_column(String(50))
+    country: Mapped[str] = mapped_column(String(2), server_default=text("'MY'"))
+    business_activity: Mapped[str | None] = mapped_column(String(300))
+    einvoice_enabled: Mapped[bool] = mapped_column(Boolean, server_default=text("false"))
     base_currency: Mapped[str] = mapped_column(String(3), server_default=text("'MYR'"))
     is_active: Mapped[bool] = mapped_column(Boolean, server_default=text("true"))
 
