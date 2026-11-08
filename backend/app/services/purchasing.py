@@ -176,7 +176,38 @@ def _check_header_refs(db: Session, p: Principal, v: dict[str, Any]) -> None:
             raise BadRequest("Location not found")
 
 
-def _build_lines(db: Session, p: Principal, k: Kind, lines: list[dict[str, Any]]) -> list:
+def _invoice_costs(
+    db: Session, p: Principal, supplier_id: uuid.UUID | None, invoice_no: str | None
+) -> dict[uuid.UUID, Decimal]:
+    """Cost per base unit of each item on the supplier's posted invoice (GRN) invoice_no."""
+    if not supplier_id or not invoice_no or not invoice_no.strip():
+        return {}
+    rows = db.execute(
+        select(GrnLine.item_id, func.sum(GrnLine.line_subtotal), func.sum(GrnLine.base_qty))
+        .join(Grn, Grn.id == GrnLine.header_id)
+        .where(
+            Grn.company_id == p.company_id,
+            Grn.supplier_id == supplier_id,
+            Grn.status == "POSTED",
+            func.upper(func.trim(Grn.supplier_ref_no)) == invoice_no.strip().upper(),
+        )
+        .group_by(GrnLine.item_id)
+    ).all()
+    return {item_id: value / qty for item_id, value, qty in rows if qty}
+
+
+def _build_lines(
+    db: Session,
+    p: Principal,
+    k: Kind,
+    lines: list[dict[str, Any]],
+    *,
+    supplier_id: uuid.UUID | None = None,
+    ref_invoice_no: str | None = None,
+) -> list:
+    """Price rule for returns: the CN's own price first; if the CN has none, the price on
+    the original invoice (ref_invoice_no); otherwise MISSING, which blocks saving."""
+    invoice_costs = _invoice_costs(db, p, supplier_id, ref_invoice_no) if k.direction < 0 else {}
     item_ids = {ln["item_id"] for ln in lines}
     items = {
         i.id: i
@@ -204,8 +235,15 @@ def _build_lines(db: Session, p: Principal, k: Kind, lines: list[dict[str, Any]]
             raise BadRequest("Tax code not found", {"line": n})
 
         qty = Decimal(ln["qty"])
-        price = Decimal(ln["unit_price"])
         disc = Decimal(ln.get("discount_pct") or 0)
+        if ln.get("unit_price") is not None:
+            price, source = Decimal(ln["unit_price"]), "DOC"
+        elif k.direction > 0:
+            raise BadRequest("Unit price is required", {"line": n})
+        elif item.id in invoice_costs:
+            price, disc, source = _q4(invoice_costs[item.id] * uom.factor), Decimal(0), "INVOICE"
+        else:
+            price, source = Decimal(0), "MISSING"
         net_price = price * (HUNDRED - disc) / HUNDRED
         subtotal = _q2(qty * net_price)
         rate = tax.rate if tax else Decimal(0)
@@ -220,6 +258,7 @@ def _build_lines(db: Session, p: Principal, k: Kind, lines: list[dict[str, Any]]
                 factor=uom.factor,
                 base_qty=base_qty,
                 unit_price=price,
+                price_source=source,
                 discount_pct=disc,
                 tax_code_id=tax.id if tax else None,
                 tax_rate=rate,
@@ -227,7 +266,7 @@ def _build_lines(db: Session, p: Principal, k: Kind, lines: list[dict[str, Any]]
                 line_tax=line_tax,
                 line_total=subtotal + line_tax,
                 # cost per base unit, net of discount, excluding tax (SST is not cost here)
-                unit_cost=_q4(subtotal / base_qty),
+                unit_cost=_q4(subtotal / base_qty) if base_qty else Decimal(0),
                 remark=ln.get("remark"),
             )
         )
@@ -264,6 +303,13 @@ def _validate_for_save(db: Session, p: Principal, k: Kind, doc) -> list[dict[str
     """Hard rules raise; soft findings come back as warnings for the user to check."""
     if not doc.lines:
         raise BusinessRule("A document needs at least one line")
+    missing = [ln.line_no for ln in doc.lines if ln.price_source == "MISSING"]
+    if missing:
+        raise BusinessRule(
+            "Return price missing: enter the price from the CN, or the original invoice "
+            "number so the invoice price can be used",
+            {"lines": missing, "ref_invoice_no": getattr(doc, "ref_invoice_no", None)},
+        )
     today = _today(db, p)
     if doc.doc_date > today:
         raise BusinessRule(
@@ -327,7 +373,9 @@ def create_doc(db: Session, p: Principal, kind: str, *, lines: list[dict[str, An
         updated_by=p.user_id,
         **v,
     )
-    doc.lines = _build_lines(db, p, k, lines)
+    doc.lines = _build_lines(
+        db, p, k, lines, supplier_id=doc.supplier_id, ref_invoice_no=v.get("ref_invoice_no")
+    )
     _set_totals(doc)
     db.add(doc)
     db.flush()
@@ -359,8 +407,30 @@ def update_doc(
         if val is None and key in ("doc_date", "supplier_id", "location_id", "currency"):
             raise BadRequest("Field cannot be empty", {"field": key})
         setattr(doc, key, val)
+    reprice = k.direction < 0 and bool({"ref_invoice_no", "supplier_id"} & v.keys())
+    if lines is None and reprice:
+        # Re-derive invoice prices for lines that did not carry their own price.
+        lines = [
+            {
+                "item_id": ln.item_id,
+                "uom": ln.uom,
+                "qty": ln.qty,
+                "unit_price": ln.unit_price if ln.price_source == "DOC" else None,
+                "discount_pct": ln.discount_pct if ln.price_source == "DOC" else 0,
+                "tax_code_id": ln.tax_code_id,
+                "remark": ln.remark,
+            }
+            for ln in doc.lines
+        ]
     if lines is not None:
-        doc.lines = _build_lines(db, p, k, lines)
+        doc.lines = _build_lines(
+            db,
+            p,
+            k,
+            lines,
+            supplier_id=doc.supplier_id,
+            ref_invoice_no=getattr(doc, "ref_invoice_no", None),
+        )
         db.flush()
     _set_totals(doc)
     warnings: list[dict[str, Any]] = []
@@ -428,7 +498,8 @@ def post_doc(db: Session, p: Principal, kind: str, doc_id: uuid.UUID, version: i
                 item_id=ln.item_id,
                 location_id=doc.location_id,
                 qty=ln.base_qty * k.direction,
-                unit_cost=ln.unit_cost if k.direction > 0 else None,
+                # receipts add at cost; returns remove exactly the returned value
+                unit_cost=ln.unit_cost,
                 line_id=ln.id,
             )
             for ln in doc.lines

@@ -31,8 +31,8 @@ class Move:
     item_id: uuid.UUID
     location_id: uuid.UUID
     qty: Decimal  # base units; > 0 in, < 0 out
-    # In: cost per base unit. Out: None = take at current average (a sale or a return);
-    # a value = remove exactly that value (reversing an earlier receipt).
+    # In: cost per base unit. Out: None = take at current average (a sale);
+    # a value = remove exactly that value (a supplier return at its price, or a void).
     unit_cost: Decimal | None
     line_id: uuid.UUID | None = None
 
@@ -66,8 +66,10 @@ def apply_moves(
     doc_no: str,
     moves: list[Move],
     is_reversal: bool = False,
-    allow_negative: bool = False,
+    allow_negative: bool = True,
 ) -> list[StockLedger]:
+    """Negative stock is allowed (company decision 2026-11-08); pass allow_negative=False
+    for flows that must not oversell."""
     keys = sorted({(m.item_id, m.location_id) for m in moves}, key=lambda k: (str(k[0]), str(k[1])))
     balances = _lock_balances(db, company_id, keys)
 

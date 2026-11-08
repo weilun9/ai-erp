@@ -68,6 +68,9 @@ class PurchaseLine(UUIDPk):
     factor: Mapped[Decimal] = mapped_column(Qty)  # snapshot of item_uom.factor
     base_qty: Mapped[Decimal] = mapped_column(Qty)  # qty * factor
     unit_price: Mapped[Decimal] = mapped_column(Money)  # per `uom`, before discount
+    # Where unit_price came from: DOC (typed from the document), INVOICE (taken from the
+    # original GRN/invoice for a return), MISSING (return with no price yet; cannot save).
+    price_source: Mapped[str] = mapped_column(String(10), server_default=text("'DOC'"))
     discount_pct: Mapped[Decimal] = mapped_column(Numeric(7, 4), server_default=text("0"))
     tax_code_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("md.tax_code.id"))
     tax_rate: Mapped[Decimal] = mapped_column(Numeric(9, 4), server_default=text("0"))

@@ -204,16 +204,24 @@ def test_moving_average_and_void_reversal(shop, client) -> None:
     assert len(ledger) == 4  # never deleted
 
 
-def test_return_more_than_on_hand_is_blocked(shop, client) -> None:
+def test_stock_may_go_negative(shop, client) -> None:
     pcs = lambda q: [{"item_id": shop["cake"], "uom": "PCS", "qty": q, "unit_price": "1"}]  # noqa: E731
     _posted(client, shop, "grn", pcs("20"), ref="IJB20")
-    cn = _doc(client, shop, "supplier-cn", pcs("50")).json()
-    cn = _act(client, shop, "supplier-cn", cn, "save").json()
-    r = _act(client, shop, "supplier-cn", cn, "post")
-    assert r.status_code == 422 and r.json()["error"]["code"] == "STOCK_INSUFFICIENT"
-    still = client.get(f"/api/v1/purchase/supplier-cn/{cn['id']}", headers=shop["h"]).json()
-    assert still["status"] == "SAVED"
-    assert _balance(client, shop, shop["cake"])["qty"] == "20.0000"
+    _posted(client, shop, "supplier-cn", pcs("50"))
+    bal = _balance(client, shop, shop["cake"])
+    assert bal["qty"] == "-30.0000"
+    assert bal["avg_cost"] == "1.0000"  # average kept while negative
+
+    # The next receipt starts the average afresh from its own cost.
+    _posted(
+        client,
+        shop,
+        "grn",
+        [{"item_id": shop["cake"], "uom": "PCS", "qty": "40", "unit_price": "2"}],
+        ref="IJB21",
+    )
+    bal = _balance(client, shop, shop["cake"])
+    assert (bal["qty"], bal["avg_cost"]) == ("10.0000", "2.0000")
 
 
 def test_voiding_posted_cn_puts_stock_back(shop, client) -> None:
@@ -360,7 +368,7 @@ def _parallel(*calls):
     return results
 
 
-def test_concurrent_returns_cannot_oversell(shop, client) -> None:
+def test_concurrent_returns_lose_no_update(shop, client) -> None:
     pcs = lambda q: [{"item_id": shop["cake"], "uom": "PCS", "qty": q, "unit_price": "1"}]  # noqa: E731
     _posted(client, shop, "grn", pcs("10"), ref="IJB1000")
     cns = []
@@ -378,9 +386,9 @@ def test_concurrent_returns_cannot_oversell(shop, client) -> None:
             ).status_code
         )
 
-    codes = sorted(_parallel(post(cns[0]), post(cns[1])))
-    assert codes == [200, 422]
-    assert _balance(client, shop, shop["cake"])["qty"] == "3.0000"
+    assert _parallel(post(cns[0]), post(cns[1])) == [200, 200]
+    # Both applied, one after the other (row lock): 10 - 7 - 7
+    assert _balance(client, shop, shop["cake"])["qty"] == "-4.0000"
 
 
 def test_same_document_cannot_be_posted_twice_concurrently(shop, client) -> None:
@@ -401,3 +409,94 @@ def test_same_document_cannot_be_posted_twice_concurrently(shop, client) -> None
     codes = sorted(_parallel(post(), post()))
     assert codes == [200, 409]
     assert _balance(client, shop, shop["cake"])["qty"] == "5.0000"
+
+
+# --- return price: CN price first, then the original invoice ----------------------------
+
+
+def _two_receipts(client, shop):
+    pcs = lambda q, pr, ref: _posted(  # noqa: E731
+        client,
+        shop,
+        "grn",
+        [{"item_id": shop["bread"], "uom": "CTN", "qty": q, "unit_price": pr}],
+        ref=ref,
+    )
+    pcs("1", "24.00", "IJB3001")  # 24 pcs @ 1.00
+    pcs("1", "48.00", "IJB3002")  # 24 pcs @ 2.00 -> avg 1.50
+
+
+def test_return_uses_its_own_price_first(shop, client) -> None:
+    _two_receipts(client, shop)
+    cn = _posted(
+        client,
+        shop,
+        "supplier-cn",
+        [{"item_id": shop["bread"], "uom": "PCS", "qty": "12", "unit_price": "1.80"}],
+        ref_invoice_no="IJB3001",  # ignored: the CN has its own price
+    )
+    ln = cn["lines"][0]
+    assert (ln["price_source"], ln["unit_price"], ln["line_subtotal"]) == (
+        "DOC",
+        "1.8000",
+        "21.6000",
+    )
+    bal = _balance(client, shop, shop["bread"])
+    # 48 @ 1.50 = 72.00, minus 12 @ 1.80 = 21.60 -> 36 pcs worth 50.40 -> 1.40
+    assert (bal["qty"], bal["avg_cost"]) == ("36.0000", "1.4000")
+
+
+def test_return_without_price_takes_invoice_price(shop, client) -> None:
+    _two_receipts(client, shop)
+    cn = _doc(
+        client,
+        shop,
+        "supplier-cn",
+        [{"item_id": shop["bread"], "uom": "CTN", "qty": "1"}],
+        ref_invoice_no=" ijb3002 ",
+    ).json()
+    ln = cn["lines"][0]
+    assert ln["price_source"] == "INVOICE"
+    assert ln["unit_price"] == "48.0000"  # 2.00 per piece x 24 per carton
+    cn = _act(client, shop, "supplier-cn", cn, "save").json()
+    _act(client, shop, "supplier-cn", cn, "post")
+    bal = _balance(client, shop, shop["bread"])
+    # 72.00 - 48.00 = 24.00 for 24 pcs -> 1.00
+    assert (bal["qty"], bal["avg_cost"]) == ("24.0000", "1.0000")
+
+
+def test_return_without_any_price_cannot_be_saved(shop, client) -> None:
+    _two_receipts(client, shop)
+    cn = _doc(
+        client, shop, "supplier-cn", [{"item_id": shop["bread"], "uom": "PCS", "qty": "3"}]
+    ).json()
+    assert cn["lines"][0]["price_source"] == "MISSING"  # draft is fine
+    r = _act(client, shop, "supplier-cn", cn, "save")
+    assert r.status_code == 422 and r.json()["error"]["details"]["lines"] == [1]
+
+    # Adding the invoice number later fills the price in.
+    fixed = client.patch(
+        f"/api/v1/purchase/supplier-cn/{cn['id']}",
+        json={"version": cn["version"], "ref_invoice_no": "IJB3001"},
+        headers=shop["h"],
+    ).json()
+    assert fixed["lines"][0]["price_source"] == "INVOICE"
+    assert fixed["lines"][0]["unit_price"] == "1.0000"
+    assert _act(client, shop, "supplier-cn", fixed, "save").status_code == 200
+
+
+def test_item_not_on_referenced_invoice_is_missing(shop, client) -> None:
+    _two_receipts(client, shop)
+    cn = _doc(
+        client,
+        shop,
+        "supplier-cn",
+        [{"item_id": shop["cake"], "uom": "PCS", "qty": "1"}],
+        ref_invoice_no="IJB3001",
+    ).json()
+    assert cn["lines"][0]["price_source"] == "MISSING"
+
+
+def test_grn_line_still_needs_a_price(shop, client) -> None:
+    r = _doc(client, shop, lines=[{"item_id": shop["cake"], "uom": "PCS", "qty": "1"}])
+    assert r.status_code == 400

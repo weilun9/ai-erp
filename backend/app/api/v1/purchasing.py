@@ -24,7 +24,9 @@ class LineIn(BaseModel):
     item_id: uuid.UUID
     uom: str = Field(min_length=1, max_length=10)
     qty: Decimal = Field(gt=0, max_digits=18, decimal_places=4)
-    unit_price: Decimal = Field(ge=0, max_digits=18, decimal_places=4)
+    # Required on GRN. On a supplier CN it may be left out: the price on the original
+    # invoice (ref_invoice_no) is used instead.
+    unit_price: Decimal | None = Field(default=None, ge=0, max_digits=18, decimal_places=4)
     discount_pct: Decimal = Field(default=Decimal(0), ge=0, le=100, decimal_places=4)
     tax_code_id: uuid.UUID | None = None
     remark: str | None = Field(default=None, max_length=200)
@@ -71,6 +73,7 @@ class LineOut(BaseModel):
     factor: Decimal
     base_qty: Decimal
     unit_price: Decimal | None = sensitive("cost")
+    price_source: str
     discount_pct: Decimal
     tax_code_id: uuid.UUID | None
     tax_rate: Decimal
