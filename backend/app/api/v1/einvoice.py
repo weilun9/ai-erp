@@ -13,7 +13,7 @@ from app.services import einvoice as svc
 
 router = APIRouter(prefix="/einvoice", tags=["einvoice"])
 
-DocType = Literal["INV", "CN"]
+DocType = Literal["INV", "CN", "CON"]
 
 
 class EinvoiceOut(BaseModel):
@@ -55,7 +55,7 @@ class PendingDoc(BaseModel):
     id: uuid.UUID
     doc_no: str
     doc_date: date
-    customer_id: uuid.UUID
+    customer_id: uuid.UUID | None  # None: consolidated walk-in sales
     total: Decimal
 
 

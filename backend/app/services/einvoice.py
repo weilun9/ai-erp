@@ -18,11 +18,11 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.errors import BusinessRule, DocState, NotFound
-from app.models import CustomerCn, Einvoice, SalesInvoice
+from app.models import CustomerCn, Einvoice, PosConsolidation, SalesInvoice
 from app.models.einvoice import ACTIVE
-from app.services import audit, sales
+from app.services import audit, pos_consolidation, sales
 from app.services.auth import Principal
-from app.services.einvoice_ubl import TYPE_CODES, VERSION, build
+from app.services.einvoice_ubl import TYPE_CODES, VERSION, build, build_consolidated
 from app.services.myinvois import MyInvoisError, encode, get_client, share_url
 
 KINDS = {"INV": ("sales-invoice", SalesInvoice), "CN": ("customer-cn", CustomerCn)}
@@ -33,7 +33,29 @@ def _kind(doc_type: str):
     try:
         return KINDS[doc_type]
     except KeyError as exc:
-        raise NotFound("E-invoices are for sales invoices (INV) and credit notes (CN)") from exc
+        raise NotFound(
+            "E-invoices are for sales invoices (INV), credit notes (CN) and monthly "
+            "consolidated POS documents (CON)"
+        ) from exc
+
+
+def _load(db: Session, p: Principal, doc_type: str, doc_id: uuid.UUID):
+    if doc_type == "CON":
+        return pos_consolidation.get(db, p, doc_id)
+    kind, _ = _kind(doc_type)
+    return sales.get_doc(db, p, kind, doc_id)
+
+
+def _not_ready(doc_type: str, doc) -> str | None:
+    if doc_type == "CON":
+        return None if doc.status == "OPEN" else "Released: its receipts were freed"
+    return None if doc.status == "POSTED" else "Only posted documents are sent"
+
+
+def _build(db: Session, p: Principal, doc_type: str, doc, now=None):
+    if doc_type == "CON":
+        return build_consolidated(db, p.company_id, doc, pos_consolidation.of(db, doc), now=now)
+    return build(db, p.company_id, doc_type, doc, original=_original(db, doc_type, doc))
 
 
 def active_for(db: Session, doc_id: uuid.UUID) -> Einvoice | None:
@@ -49,13 +71,12 @@ def _original(db: Session, doc_type: str, doc) -> tuple[str, str] | None:
 
 
 def preview(db: Session, p: Principal, doc_type: str, doc_id: uuid.UUID) -> dict[str, Any]:
-    kind, _ = _kind(doc_type)
-    doc = sales.get_doc(db, p, kind, doc_id)
-    document, problems, warnings = build(
-        db, p.company_id, doc_type, doc, original=_original(db, doc_type, doc)
-    )
-    if doc.status != "POSTED":
-        problems.insert(0, {"field": "status", "message": "Only posted documents are sent"})
+    doc = _load(db, p, doc_type, doc_id)
+    document, problems, warnings = _build(db, p, doc_type, doc)
+    if (why := _not_ready(doc_type, doc)) is not None:
+        problems.insert(0, {"field": "status", "message": why})
+    if doc_type == "CON":
+        warnings += pos_consolidation.reminders(doc.period_start)
     return {"document": document, "problems": problems, "warnings": warnings}
 
 
@@ -71,16 +92,13 @@ def _client():
 
 def submit(db: Session, p: Principal, doc_type: str, doc_id: uuid.UUID) -> Einvoice:
     p.require("sal.einvoice.submit")
-    kind, _ = _kind(doc_type)
     client = _client()
-    doc = sales.get_doc(db, p, kind, doc_id)
-    if doc.status != "POSTED":
-        raise DocState("Only posted documents are sent to LHDN", {"status": doc.status})
+    doc = _load(db, p, doc_type, doc_id)
+    if (why := _not_ready(doc_type, doc)) is not None:
+        raise DocState(why, {"status": doc.status})
     if active_for(db, doc.id) is not None:
         raise DocState("This document already has an e-invoice")
-    document, problems, warnings = build(
-        db, p.company_id, doc_type, doc, original=_original(db, doc_type, doc)
-    )
+    document, problems, warnings = _build(db, p, doc_type, doc)
     if problems:
         raise BusinessRule("Fix these before sending to LHDN", {"problems": problems})
     enc = encode(document)
@@ -185,6 +203,7 @@ def refresh(db: Session, p: Principal, einvoice_id: uuid.UUID) -> Einvoice:
         row.status = "CANCELLED"
         row.cancelled_at = _when(det.get("cancelDateTime")) or datetime.now(UTC)
         row.cancel_reason = row.cancel_reason or det.get("documentStatusReason")
+        _release(db, p, row, "cancelled at LHDN")
     if row.status != before:
         audit.record(
             db,
@@ -226,9 +245,17 @@ def cancel(db: Session, p: Principal, einvoice_id: uuid.UUID, reason: str) -> Ei
             "MyInvois did not cancel it", {"error": str(exc), "reply": exc.body}
         ) from exc
     row.status, row.cancelled_at, row.cancel_reason = "CANCELLED", datetime.now(UTC), reason
+    _release(db, p, row, reason)
     audit.record(db, p, "einvoice_cancel", "sal.einvoice", row.id, after={"reason": reason})
     db.commit()
     return row
+
+
+def _release(db: Session, p: Principal, row: Einvoice, why: str) -> None:
+    """A cancelled consolidated e-invoice frees its POS receipts for a new one."""
+    if row.doc_type == "CON":
+        con = pos_consolidation.get(db, p, row.doc_id, lock=True)
+        pos_consolidation.release(db, con, p, why)
 
 
 def list_einvoices(
@@ -269,6 +296,24 @@ def pending(db: Session, p: Principal) -> list[dict[str, Any]]:
             }
             for d in rows
         ]
+    sent = select(Einvoice.doc_id).where(Einvoice.status.in_(ACTIVE))
+    for con in db.scalars(
+        select(PosConsolidation).where(
+            PosConsolidation.company_id == p.company_id,
+            PosConsolidation.status == "OPEN",
+            PosConsolidation.id.not_in(sent),
+        )
+    ):
+        out.append(
+            {
+                "doc_type": "CON",
+                "id": con.id,
+                "doc_no": con.doc_no,
+                "doc_date": con.period_end,
+                "customer_id": None,
+                "total": con.total,
+            }
+        )
     return out
 
 

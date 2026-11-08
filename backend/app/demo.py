@@ -458,6 +458,45 @@ def main() -> None:
     )
     say(f"Shift closed, variance RM{float(closed['variance']):.2f} (under RM5, no note needed)")
 
+    chapter(12, "Month end: walk-in sales go to LHDN as one consolidated e-invoice")
+    from datetime import datetime as _dt
+    from zoneinfo import ZoneInfo
+
+    from sqlalchemy import update
+
+    from app.localization.my import TIMEZONE
+    from app.models import PosSale
+
+    first = _dt.now(ZoneInfo(TIMEZONE)).date().replace(day=1)
+    last = first - timedelta(days=1)
+    with SessionLocal() as db:  # demo only: pretend today's till receipts were last month
+        db.execute(
+            update(PosSale).values(
+                sold_at=_dt(last.year, last.month, 15, 12, tzinfo=ZoneInfo(TIMEZONE))
+            )
+        )
+        db.commit()
+    say(f"(Demo setup: today's receipts moved to {last:%B %Y} so that month is over)")
+    pv = office.get("/pos/consolidations/preview", period=last.isoformat())
+    for line in pv["lines"]:
+        say(
+            f"  line: {line['description']}  RM{float(line['subtotal']):.2f} "
+            f"+ tax RM{float(line['tax']):.2f}"
+        )
+    say(f"Cash rounding RM{float(pv['rounding']):.2f}; total RM{float(pv['total']):.2f}")
+    con = office.post("/pos/consolidations", {"period": last.isoformat()})
+    ubl = office.get(f"/einvoice/preview/CON/{con['id']}")
+    inv = ubl["document"]["Invoice"][0]
+    buyer = inv["AccountingCustomerParty"][0]["Party"][0]["PartyIdentification"][0]["ID"][0]
+    cls = inv["InvoiceLine"][0]["Item"][0]["CommodityClassification"][0]
+    say(
+        f"{con['doc_no']}: buyer TIN {buyer['_']}, classification "
+        f"{cls['ItemClassificationCode'][0]['_']}, period "
+        f"{inv['InvoicePeriod'][0]['StartDate'][0]['_']} to "
+        f"{inv['InvoicePeriod'][0]['EndDate'][0]['_']}"
+    )
+    say(f"Would LHDN reject it? {[x['message'] for x in ubl['problems']] or 'no'}")
+
     print(f"\nDone. Data kept in database '{DEMO_DB}'. Explore it with the API docs:")
     print("   set POSTGRES_DB=erp_demo, run uvicorn app.main:app, open /docs, log in as owner")
 

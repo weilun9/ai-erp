@@ -11,11 +11,12 @@ sal.pos_payment  how it was paid; a return has negative amounts
 """
 
 import uuid
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal
 
 from sqlalchemy import (
     CheckConstraint,
+    Date,
     DateTime,
     ForeignKey,
     Index,
@@ -69,6 +70,37 @@ class PosShift(UUIDPk, Base):
     version: Mapped[int] = mapped_column(Integer, server_default=text("1"))
 
 
+CONSOLIDATION_STATUSES = ("OPEN", "RELEASED")
+
+
+class PosConsolidation(UUIDPk, Base):
+    """One month of walk-in POS receipts reported to LHDN as one consolidated e-invoice.
+    OPEN = holds its receipts; RELEASED = its e-invoice was cancelled (or it was dropped
+    before sending), so the receipts can be consolidated again."""
+
+    __tablename__ = "pos_consolidation"
+    __table_args__ = (
+        # Not unique per month: receipts uploaded late (offline tills) after the month was
+        # consolidated go into a second one. Locking the receipts stops double counting.
+        CheckConstraint(f"status IN {CONSOLIDATION_STATUSES}", name="status"),
+        {"schema": "sal"},
+    )
+    company_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("core.company.id"), index=True)
+    doc_no: Mapped[str] = mapped_column(String(30))
+    period_start: Mapped[date] = mapped_column(Date)
+    period_end: Mapped[date] = mapped_column(Date)
+    status: Mapped[str] = mapped_column(String(10), server_default=text("'OPEN'"))
+    receipts: Mapped[int] = mapped_column(Integer)
+    subtotal: Mapped[Decimal] = mapped_column(Money)
+    tax_total: Mapped[Decimal] = mapped_column(Money)
+    rounding: Mapped[Decimal] = mapped_column(Money)
+    total: Mapped[Decimal] = mapped_column(Money)
+    currency: Mapped[str] = mapped_column(String(3), server_default=text("'MYR'"))
+    created_by: Mapped[uuid.UUID | None] = mapped_column(Uuid)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    released_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
 class PosSale(UUIDPk, Base):
     __tablename__ = "pos_sale"
     __table_args__ = (
@@ -97,6 +129,9 @@ class PosSale(UUIDPk, Base):
     cost_total: Mapped[Decimal] = mapped_column(Money, server_default=text("0"))
     approved_by: Mapped[uuid.UUID | None] = mapped_column(Uuid)  # supervisor override
     reason: Mapped[str | None] = mapped_column(String(200))  # RETURN
+    consolidation_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("sal.pos_consolidation.id"), index=True
+    )  # the monthly consolidated e-invoice it was reported in
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     lines: Mapped[list["PosLine"]] = relationship(
         back_populates="sale", cascade="all, delete-orphan", order_by="PosLine.line_no"

@@ -22,7 +22,7 @@ from app.localization import pack
 from app.models import Company, Customer, Item, TaxCode, Uom
 
 VERSION = "1.0"
-TYPE_CODES = {"INV": "01", "CN": "02"}
+TYPE_CODES = {"INV": "01", "CN": "02", "CON": "01"}  # CON: consolidated invoice
 NS = {
     "_D": "urn:oasis:names:specification:ubl:schema:xsd:Invoice-2",
     "_A": "urn:oasis:names:specification:ubl:schema:xsd:CommonAggregateComponents-2",
@@ -287,4 +287,146 @@ def build(
         ],
         "InvoiceLine": lines,
     }
+    return {**NS, "Invoice": [invoice]}, problems, warnings
+
+
+CONSOLIDATED_CLASSIFICATION = "004"  # "Consolidated e-Invoice" (SDK classification codes)
+CONSOLIDATED_BUYER = "Consolidated Buyer's"  # as in the SDK's consolidated sample
+
+
+def _consolidated_buyer() -> dict[str, Any]:
+    """Buyer block of the SDK's consolidated sample (TIN EI00000000010, the rest "NA")."""
+    return {
+        "PartyIdentification": [
+            {"ID": _v(GENERAL_PUBLIC_TIN, schemeID="TIN")},
+            {"ID": _v(NA, schemeID="BRN")},
+            {"ID": _v(NA, schemeID="SST")},
+            {"ID": _v(NA, schemeID="TTX")},
+        ],
+        "PostalAddress": [
+            {
+                "CityName": _v(""),
+                "PostalZone": _v(""),
+                "CountrySubentityCode": _v("17"),  # "for consolidated submission"
+                "AddressLine": [{"Line": _v(NA)}],
+                "Country": [
+                    {"IdentificationCode": _v("MYS", listID="ISO3166-1", listAgencyID="6")}
+                ],
+            }
+        ],
+        "PartyLegalEntity": [{"RegistrationName": _v(CONSOLIDATED_BUYER)}],
+        "Contact": [{"Telephone": _v(NA)}],
+    }
+
+
+def build_consolidated(
+    db: Session, company_id, con, summary, *, now: datetime | None = None
+) -> tuple[dict[str, Any], list[dict[str, str]], list[dict[str, str]]]:
+    """One month of walk-in POS receipts: one line per store x tax rate (see
+    pos_consolidation). `summary` is pos_consolidation.Summary."""
+    company = db.get(Company, company_id)
+    my = pack(company.country)
+    currency = con.currency or my.CURRENCY
+    problems: list[dict[str, str]] = []
+    if not company.einvoice_enabled:
+        problems.append({"field": "company.einvoice_enabled", "message": "E-invoice is off"})
+    problems += _party_problems("company", company, seller=True, my=my)
+    if not summary.groups:
+        problems.append({"field": "receipts", "message": "No receipts in this document"})
+
+    lines, tax_groups = [], {}
+    for n, g in enumerate(summary.groups, start=1):
+        if g.subtotal <= 0:
+            problems.append(
+                {
+                    "field": f"lines.{n}",
+                    "message": f"{g.description}: refunds "
+                    "are more than sales; LHDN lines cannot be negative",
+                }
+            )
+        category: dict[str, Any] = {"ID": _v(g.tax_type), "TaxScheme": TAX_SCHEME}
+        if g.tax_type == "E":
+            category["TaxExemptionReason"] = _v(g.tax_name)
+        lines.append(
+            {
+                "ID": _v(str(n)),
+                "InvoicedQuantity": _v(1, unitCode="C62"),
+                "LineExtensionAmount": _money(g.subtotal, currency),
+                "TaxTotal": [
+                    {
+                        "TaxAmount": _money(g.tax, currency),
+                        "TaxSubtotal": [
+                            {
+                                "TaxableAmount": _money(g.subtotal, currency),
+                                "TaxAmount": _money(g.tax, currency),
+                                "Percent": _v(_n(g.rate)),
+                                "TaxCategory": [category],
+                            }
+                        ],
+                    }
+                ],
+                "Item": [
+                    {
+                        "CommodityClassification": [
+                            {
+                                "ItemClassificationCode": _v(
+                                    CONSOLIDATED_CLASSIFICATION, listID="CLASS"
+                                )
+                            }
+                        ],
+                        "Description": _v(g.description),
+                    }
+                ],
+                "Price": [{"PriceAmount": _money(g.subtotal, currency)}],
+                "ItemPriceExtension": [{"Amount": _money(g.subtotal, currency)}],
+            }
+        )
+        t = tax_groups.setdefault(g.tax_type, [Decimal(0), Decimal(0)])
+        t[0] += g.subtotal
+        t[1] += g.tax
+
+    now = (now or datetime.now(UTC)).astimezone(UTC)
+    totals: dict[str, Any] = {
+        "LineExtensionAmount": _money(summary.subtotal, currency),
+        "TaxExclusiveAmount": _money(summary.subtotal, currency),
+        "TaxInclusiveAmount": _money(summary.subtotal + summary.tax_total, currency),
+    }
+    if summary.rounding:  # 5-sen cash rounding; PayableAmount includes it (SDK field list)
+        totals["PayableRoundingAmount"] = _money(summary.rounding, currency)
+    totals["PayableAmount"] = _money(summary.total, currency)
+    invoice = {
+        "ID": _v(con.doc_no),
+        "IssueDate": _v(now.strftime("%Y-%m-%d")),
+        "IssueTime": _v(now.strftime("%H:%M:%SZ")),
+        "InvoiceTypeCode": _v(TYPE_CODES["INV"], listVersionID=VERSION),
+        "DocumentCurrencyCode": _v(currency),
+        "InvoicePeriod": [
+            {
+                "StartDate": _v(con.period_start.isoformat()),
+                "EndDate": _v(con.period_end.isoformat()),
+                "Description": _v("Monthly"),
+            }
+        ],
+        "AccountingSupplierParty": [{"Party": [_party(company, company.name, seller=True)]}],
+        "AccountingCustomerParty": [{"Party": [_consolidated_buyer()]}],
+        "TaxTotal": [
+            {
+                "TaxAmount": _money(summary.tax_total, currency),
+                "TaxSubtotal": [
+                    {
+                        "TaxableAmount": _money(base, currency),
+                        "TaxAmount": _money(tax, currency),
+                        "TaxCategory": [{"ID": _v(t), "TaxScheme": TAX_SCHEME}],
+                    }
+                    for t, (base, tax) in sorted(tax_groups.items())
+                ],
+            }
+        ],
+        "LegalMonetaryTotal": [totals],
+        "InvoiceLine": lines,
+    }
+    warnings = [
+        {"field": "left_out", "message": f"{x['receipt_no']} refunds {x['refunds']}: {x['why']}"}
+        for x in summary.left_out
+    ]
     return {**NS, "Invoice": [invoice]}, problems, warnings

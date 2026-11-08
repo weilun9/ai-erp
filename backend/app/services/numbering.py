@@ -23,6 +23,7 @@ DEFAULT_PREFIX = {
     "POS": "POS",
     "POSR": "RTN",
     "SHIFT": "SHF",
+    "CON": "CON",
 }
 
 

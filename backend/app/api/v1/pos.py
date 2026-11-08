@@ -11,6 +11,7 @@ from pydantic import BaseModel, Field
 from app.api.deps import DB, CurrentUser
 from app.api.redact import sensitive, shape
 from app.services import pos as svc
+from app.services import pos_consolidation as cons
 
 router = APIRouter(prefix="/pos", tags=["pos"])
 Method = Literal["CASH", "CARD", "EWALLET", "VOUCHER"]
@@ -211,3 +212,66 @@ def _plain(body: BaseModel) -> dict[str, Any]:
     v = body.model_dump()
     v["lines"] = [{k: x for k, x in ln.items() if x is not None} for ln in v["lines"]]
     return v
+
+
+# --- monthly consolidated e-invoice -------------------------------------------------------
+
+
+class ConsolidationIn(BaseModel):
+    period: date  # any day in the month
+
+
+class ConsolidationOut(BaseModel):
+    id: uuid.UUID
+    doc_no: str
+    period_start: date
+    period_end: date
+    status: str
+    receipts: int
+    subtotal: Decimal
+    tax_total: Decimal
+    rounding: Decimal
+    total: Decimal
+    created_at: datetime
+    released_at: datetime | None
+
+
+def _con(c) -> ConsolidationOut:
+    return ConsolidationOut.model_validate(c, from_attributes=True)
+
+
+@router.get("/consolidations/preview")
+def preview_consolidation(p: CurrentUser, db: DB, period: date) -> dict[str, Any]:
+    """What the month's consolidated e-invoice would contain (nothing is saved)."""
+    p.require("sal.doc.read")
+    start, end = cons.month(period)
+    return {
+        "period_start": start,
+        "period_end": end,
+        **cons.as_dict(cons.pending(db, p, period)),
+        "reminders": cons.reminders(period),
+    }
+
+
+@router.post("/consolidations", status_code=201)
+def create_consolidation(body: ConsolidationIn, p: CurrentUser, db: DB) -> ConsolidationOut:
+    """Take the month's unreported receipts; then send it with /einvoice/submit (CON)."""
+    return _con(cons.create(db, p, body.period))
+
+
+@router.get("/consolidations")
+def list_consolidations(p: CurrentUser, db: DB) -> list[ConsolidationOut]:
+    return [_con(c) for c in cons.listing(db, p)]
+
+
+@router.get("/consolidations/{con_id}")
+def get_consolidation(con_id: uuid.UUID, p: CurrentUser, db: DB) -> dict[str, Any]:
+    c = cons.get(db, p, con_id)
+    lines = cons.as_dict(cons.of(db, c)) if c.status == "OPEN" else {"lines": []}
+    return {**lines, **_con(c).model_dump()}  # stored totals win (kept after release)
+
+
+@router.post("/consolidations/{con_id}/drop")
+def drop_consolidation(con_id: uuid.UUID, p: CurrentUser, db: DB) -> ConsolidationOut:
+    """Undo one that was never sent (or whose e-invoice failed): frees its receipts."""
+    return _con(cons.drop(db, p, con_id))
