@@ -1,0 +1,138 @@
+"""Permission codes and default role templates (design doc section 7).
+
+Codes follow ``module.object.action``. Field-level codes start with ``field.``.
+The registry here is the single source of truth: ``app.services.seed`` syncs it
+into ``core.permission`` and the system roles of each company.
+"""
+
+from dataclasses import dataclass
+
+PERMISSIONS: dict[str, str] = {
+    # core
+    "core.company.read": "View company profile",
+    "core.company.manage": "Edit company profile",
+    "core.location.read": "View stores / warehouses",
+    "core.location.manage": "Create and edit stores / warehouses",
+    "core.user.read": "View users",
+    "core.user.manage": "Create, edit and deactivate users",
+    "core.role.read": "View roles",
+    "core.role.manage": "Create and edit roles",
+    # master data
+    "md.item.read": "View items",
+    "md.item.manage": "Create and edit items",
+    "md.supplier.read": "View suppliers",
+    "md.supplier.manage": "Create and edit suppliers",
+    "md.customer.read": "View customers",
+    "md.customer.manage": "Create and edit customers",
+    # purchasing
+    "pur.doc.read": "View purchase documents",
+    "pur.doc.create": "Create and edit purchase documents",
+    "pur.doc.post": "Post purchase documents",
+    "pur.doc.void": "Void posted purchase documents",
+    # sales
+    "sal.doc.read": "View sales documents",
+    "sal.doc.create": "Create and edit sales documents",
+    "sal.doc.post": "Post sales documents",
+    "sal.doc.void": "Void posted sales documents",
+    # inventory
+    "inv.balance.read": "View stock balances and ledger",
+    "inv.doc.create": "Create stock adjustments, transfers and counts",
+    "inv.doc.post": "Post stock documents",
+    # POS
+    "pos.sale.create": "Ring up POS sales",
+    "pos.shift.close": "Close POS shifts",
+    # issues
+    "core.issue.read": "View problem documents",
+    "core.issue.handle": "Handle problem documents",
+    # reports / accounting
+    "report.run": "Run predefined reports",
+    "acc.period.close": "Month-end close and accounting export",
+    # sensitive fields
+    "field.cost.read": "See cost price, average cost and margin",
+    "field.finance.read": "See receivable / payable balances",
+    "field.pii.read": "See customer phone, address and ID numbers",
+    # AI
+    "ai.chat.use": "Use the AI butler",
+    "ai.write.enabled": "Let the AI draft write actions for this user",
+    "ai.vision.use": "Use document image recognition",
+    "ai.kb.read": "Search the knowledge base",
+    "ai.kb.manage": "Manage knowledge base documents",
+    # audit
+    "audit.read": "View audit log",
+}
+
+
+@dataclass(frozen=True)
+class RoleTemplate:
+    code: str
+    name: str
+    all_locations: bool
+    permissions: frozenset[str]
+
+
+def _match(*prefixes: str) -> frozenset[str]:
+    return frozenset(c for c in PERMISSIONS if c.startswith(prefixes))
+
+
+def _reads() -> frozenset[str]:
+    return frozenset(c for c in PERMISSIONS if c.endswith(".read"))
+
+
+ROLE_TEMPLATES: dict[str, RoleTemplate] = {
+    t.code: t
+    for t in (
+        RoleTemplate("owner", "Owner", True, frozenset(PERMISSIONS)),
+        RoleTemplate(
+            "clerk",
+            "Clerk",
+            False,
+            _match("md.", "pur.", "sal.", "inv.", "core.issue.")
+            | {
+                "core.location.read",
+                "report.run",
+                "field.cost.read",
+                "field.finance.read",
+                "ai.chat.use",
+                "ai.write.enabled",
+                "ai.vision.use",
+                "ai.kb.read",
+            },
+        ),
+        RoleTemplate(
+            "accountant",
+            "Accountant",
+            True,
+            (_reads() - {"core.issue.read", "audit.read"})
+            | _match("field.")
+            | {"report.run", "acc.period.close", "ai.chat.use"},
+        ),
+        RoleTemplate(
+            "cashier",
+            "Cashier",
+            False,
+            frozenset(
+                {
+                    "core.location.read",
+                    "md.item.read",
+                    "inv.balance.read",
+                    "pos.sale.create",
+                    "pos.shift.close",
+                    "ai.chat.use",
+                    "ai.kb.read",
+                }
+            ),
+        ),
+        RoleTemplate(
+            "admin",
+            "System administrator",
+            True,
+            _match("core.company.", "core.location.", "core.user.", "core.role.")
+            | {"ai.kb.manage", "ai.kb.read", "ai.chat.use", "audit.read", "field.cost.read"},
+        ),
+    )
+}
+
+# Unknown codes in templates are a programming error; fail at import time.
+for _t in ROLE_TEMPLATES.values():
+    _unknown = _t.permissions - PERMISSIONS.keys()
+    assert not _unknown, f"role {_t.code} has unknown permissions {_unknown}"

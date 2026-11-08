@@ -7,6 +7,7 @@ Create Date: 2026-11-08
 from collections.abc import Sequence
 
 from alembic import op
+
 from app.db.base import SCHEMAS
 
 revision: str = "0001"

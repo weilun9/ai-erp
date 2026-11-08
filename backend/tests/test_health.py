@@ -16,14 +16,14 @@ def test_healthz() -> None:
 
 
 @pytest.mark.db
-def test_healthz_db_reports_pgvector() -> None:
+def test_healthz_db_reports_pgvector(migrated) -> None:
     resp = client.get("/healthz/db")
     assert resp.status_code == 200
     assert resp.json() == {"status": "ok", "database": "up", "pgvector": True}
 
 
 @pytest.mark.db
-def test_module_schemas_exist() -> None:
+def test_module_schemas_exist(migrated) -> None:
     with engine.connect() as conn:
         found = set(
             conn.execute(text("SELECT schema_name FROM information_schema.schemata")).scalars()
