@@ -19,6 +19,7 @@ dependencies = [
     "pillow>=11",
     "mcp>=2.3,<3",
     "pgvector>=0.4",
+    "tzdata; sys_platform == 'win32'",  # zoneinfo has no system database on Windows
 ]
 
 [project.optional-dependencies]

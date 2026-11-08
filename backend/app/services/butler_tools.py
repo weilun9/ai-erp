@@ -26,7 +26,7 @@ from sqlalchemy.orm import Session
 from app.api.v1 import finance, locations, masterdata, purchasing, sales, stock
 from app.core.errors import AppError, NotFound
 from app.models import Customer, Item, Location, Supplier
-from app.services import kb, reports
+from app.services import kb, pos, reports
 from app.services.auth import Principal
 
 MAX_ROWS = 50
@@ -422,6 +422,13 @@ def t_locations(db, p, a):
     ]
 
 
+def t_shift(db, p, a):
+    shift = pos.current_shift(db, p)
+    if shift is None:
+        raise ToolError("No shift is open on this till")
+    return pos.shift_report(db, p, shift.id)
+
+
 def t_knowledge(db, p, a):
     query = str(a.get("query", "")).strip()
     if not query:
@@ -703,6 +710,14 @@ TOOLS: list[Tool] = [
         {"type": "object", "properties": {}},
         t_locations,
         all_of=("core.location.read",),
+    ),
+    Tool(
+        "get_my_shift",
+        "The open POS shift on this till: sales and refunds so far, takings by payment "
+        "method, and the cash the drawer should hold.",
+        {"type": "object", "properties": {}},
+        t_shift,
+        all_of=("pos.sale.create",),
     ),
     Tool(
         "search_knowledge",

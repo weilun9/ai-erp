@@ -11,6 +11,7 @@ from decimal import Decimal
 COUNTRY = "MY"
 COUNTRY_ISO3 = "MYS"
 CURRENCY = "MYR"
+TIMEZONE = "Asia/Kuala_Lumpur"  # business days for POS sales and reports
 UTC_OFFSET_HOURS = 8  # Malaysia has no daylight saving
 
 # MyInvois state codes

@@ -20,6 +20,9 @@ DEFAULT_PREFIX = {
     "WO": "WO",
     "TRF": "TRF",
     "STK": "STK",
+    "POS": "POS",
+    "POSR": "RTN",
+    "SHIFT": "SHF",
 }
 
 

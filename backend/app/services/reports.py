@@ -1,7 +1,8 @@
 """Predefined reports. The web screen, the AI butler and MCP all run these; nobody (and
 no model) writes free SQL against the books.
 
-Sales = posted sales invoices minus posted customer credit notes, before tax.
+Sales = posted sales invoices + POS receipts, minus posted customer credit notes and POS
+refunds, before tax. POS sales count on their Malaysian business day.
 Cost and gross profit appear only for users who may see cost.
 """
 
@@ -10,16 +11,19 @@ from datetime import date
 from decimal import Decimal
 from typing import Any, Literal
 
-from sqlalchemy import case, func, literal, select, union_all
+from sqlalchemy import Date, case, cast, func, literal, select, union_all
 from sqlalchemy.orm import Session
 
 from app.core.errors import NotFound
+from app.localization.my import TIMEZONE
 from app.models import (
     Customer,
     CustomerCn,
     CustomerCnLine,
     Item,
     Location,
+    PosLine,
+    PosSale,
     SalesInvoice,
     SalesInvoiceLine,
     StockBalance,
@@ -68,6 +72,25 @@ def _sales_lines(p: Principal, date_from: date, date_to: date, locations):
         if locations is not None:
             stmt = stmt.where(header.location_id.in_(locations))
         parts.append(stmt)
+    day = cast(func.timezone(TIMEZONE, PosSale.sold_at), Date)
+    pos = (
+        select(
+            day.label("doc_date"),
+            PosSale.customer_id.label("customer_id"),
+            PosSale.location_id.label("location_id"),
+            PosLine.item_id.label("item_id"),
+            PosLine.base_qty.label("qty"),  # already negative on a refund
+            PosLine.line_subtotal.label("sales"),
+            (PosLine.base_qty * PosLine.unit_cost).label("cost"),
+            PosSale.id.label("doc_id"),
+            case((PosSale.kind == "SALE", 1), else_=-1).label("sign"),
+        )
+        .join(PosLine, PosLine.sale_id == PosSale.id)
+        .where(PosSale.company_id == p.company_id, day.between(date_from, date_to))
+    )
+    if locations is not None:
+        pos = pos.where(PosSale.location_id.in_(locations))
+    parts.append(pos)
     return union_all(*parts).subquery()
 
 
@@ -94,7 +117,11 @@ def sales_summary(
         key, label = s.c.item_id, func.concat(Item.code, " ", Item.name)
         joins = [(Item, Item.id == s.c.item_id)]
     elif group_by == "customer":
-        key, label = s.c.customer_id, func.concat(Customer.code, " ", Customer.name)
+        key = s.c.customer_id
+        label = case(
+            (Customer.id.is_(None), "Walk-in (POS)"),
+            else_=func.concat(Customer.code, " ", Customer.name),
+        )
         joins = [(Customer, Customer.id == s.c.customer_id)]
     else:
         key, label = s.c.location_id, func.concat(Location.code, " ", Location.name)
@@ -107,10 +134,10 @@ def sales_summary(
         func.sum(s.c.qty).label("qty"),
         sales.label("sales"),
         func.sum(s.c.cost).label("cost"),
-        func.count(func.distinct(case((s.c.sign == 1, s.c.doc_id)))).label("invoices"),
+        func.count(func.distinct(case((s.c.sign == 1, s.c.doc_id)))).label("documents"),
     ).select_from(s)
     for model, on in joins:
-        stmt = stmt.join(model, on)
+        stmt = stmt.outerjoin(model, on)
     stmt = stmt.group_by(key, label)
     stmt = stmt.order_by(key) if group_by == "day" else stmt.order_by(sales.desc())
     rows = db.execute(stmt.limit(max(1, min(limit, 200)))).all()
@@ -124,7 +151,7 @@ def sales_summary(
             group_by: str(r.label),
             "qty": q4(r.qty),
             "sales": q4(r.sales),
-            "invoices": r.invoices,
+            "documents": r.documents,  # invoices and POS receipts
         }
         if show_cost:
             out["cost"] = q4(r.cost)

@@ -13,6 +13,7 @@ from app.api.v1 import (
     masterdata,
     me,
     people,
+    pos,
     purchasing,
     reports,
     sales,
@@ -58,6 +59,7 @@ def create_app() -> FastAPI:
     v1.include_router(reports.router)
     v1.include_router(ai.router)
     v1.include_router(kb.router)
+    v1.include_router(pos.router)
     app.include_router(v1)
     return app
 

@@ -399,6 +399,65 @@ def main() -> None:
         say(f"Cashier asks: {question}")
         say(f"A: {turn['messages'][-1]['content']}")
 
+    chapter(11, "The till: scan, 5-sen rounding, offline retry, supervisor, refund, close")
+    shift = counter.post("/pos/shifts", {"location_id": hq, "opening_float": "200"})
+    say(f"Aminah opens {shift['shift_no']} on the shop counter with a RM200.00 float")
+    sale_body = {
+        "client_uuid": str(uuid.uuid4()),
+        "lines": [{"barcode": "955600100001", "qty": "1"}],  # 12 digits, no check digit
+        "payments": [{"method": "CASH", "amount": "30"}],
+    }
+    sale = counter.post("/pos/sales", sale_body)
+    say(
+        f"{sale['receipt_no']}: Milo 1kg RM{float(sale['subtotal']):.2f}, paid RM30.00 cash, "
+        f"change RM{float(sale['change']):.2f}"
+    )
+    again = counter.http.post(f"{API}/pos/sales", json=sale_body, headers=counter.h)
+    say(
+        f"Till retries the same sale after a network drop -> {again.status_code}, "
+        f"same receipt {again.json()['receipt_no']}, stock moved once"
+    )
+    odd = {
+        "client_uuid": str(uuid.uuid4()),
+        "lines": [{"barcode": "9556001000019", "qty": "1", "unit_price": "24.99"}],
+        "payments": [{"method": "CASH", "amount": "25"}],
+    }
+    r = counter.http.post(f"{API}/pos/sales", json=odd, headers=counter.h)
+    say(f"Cashier types a lower price -> {r.status_code} {r.json()['error']['details']['code']}")
+    odd["supervisor"] = {"username": "owner", "password": PASSWORD}
+    sale2 = counter.post("/pos/sales", odd)
+    say(
+        f"Owner keys in their login at the till -> {sale2['receipt_no']} at RM24.99, "
+        f"cash rounds RM24.99 to RM{float(sale2['total']):.2f}"
+    )
+    refund = counter.post(
+        "/pos/returns",
+        {
+            "client_uuid": str(uuid.uuid4()),
+            "receipt_no": sale["receipt_no"],
+            "lines": [{"line_no": 1, "qty": "1"}],
+            "reason": "dented tin",
+        },
+    )
+    say(f"{refund['receipt_no']}: refund RM{-float(refund['total']):.2f} cash (dented tin)")
+    twice = counter.http.post(
+        f"{API}/pos/returns",
+        json={
+            "client_uuid": str(uuid.uuid4()),
+            "receipt_no": sale["receipt_no"],
+            "lines": [{"line_no": 1, "qty": "1"}],
+        },
+        headers=counter.h,
+    )
+    say(f"Refunding the same tin again -> {twice.status_code}: {twice.json()['error']['message']}")
+    report = counter.get(f"/pos/shifts/{shift['id']}/report")
+    expected = float(report["expected_cash"])
+    say(f"Drawer should hold RM{expected:.2f}; Aminah counts RM{expected - 0.05:.2f}")
+    closed = counter.post(
+        f"/pos/shifts/{shift['id']}/close", {"counted_cash": f"{expected - 0.05:.2f}"}
+    )
+    say(f"Shift closed, variance RM{float(closed['variance']):.2f} (under RM5, no note needed)")
+
     print(f"\nDone. Data kept in database '{DEMO_DB}'. Explore it with the API docs:")
     print("   set POSTGRES_DB=erp_demo, run uvicorn app.main:app, open /docs, log in as owner")
 

@@ -48,6 +48,7 @@ from app.models.md import (  # noqa: F401
     TaxCode,
     Uom,
 )
+from app.models.pos import PosLine, PosPayment, PosSale, PosShift  # noqa: F401
 from app.models.pur import Grn, GrnLine, SupplierCn, SupplierCnLine  # noqa: F401
 from app.models.sal import (  # noqa: F401
     CustomerCn,
