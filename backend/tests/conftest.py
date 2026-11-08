@@ -1,4 +1,5 @@
 import os
+import uuid
 
 # Must run before any app import so settings/engine point at the test database.
 os.environ["POSTGRES_DB"] = "erp_test"
@@ -18,8 +19,8 @@ from app.core.config import get_settings  # noqa: E402
 from app.core.security import hash_password  # noqa: E402
 from app.db.session import SessionLocal  # noqa: E402
 from app.main import app  # noqa: E402
-from app.models import AppUser, Company, Location, Role  # noqa: E402
-from app.services.seed import bootstrap, sync_system_roles  # noqa: E402
+from app.models import AppUser, Company, Device, Location, Tag  # noqa: E402
+from app.services.seed import bootstrap, sync_system_tags  # noqa: E402
 
 BACKEND = Path(__file__).resolve().parents[1]
 PASSWORD = "Test-password-123"
@@ -55,15 +56,15 @@ class World:
     other_company_loc_id: object
 
 
-def _user(db, company, username, role_codes, locations=(), active=True):
-    roles = {r.code: r for r in db.scalars(select(Role).where(Role.company_id == company.id))}
+def _user(db, company, username, tag_codes, locations=(), active=True):
+    tags = {t.code: t for t in db.scalars(select(Tag).where(Tag.company_id == company.id))}
     u = AppUser(
         company_id=company.id,
         username=username,
         display_name=username,
         password_hash=hash_password(PASSWORD),
         is_active=active,
-        roles=[roles[c] for c in role_codes],
+        tags=[tags[c] for c in tag_codes],
         locations=list(locations),
     )
     db.add(u)
@@ -72,7 +73,7 @@ def _user(db, company, username, role_codes, locations=(), active=True):
 
 @pytest.fixture
 def world(migrated) -> World:
-    """Company T1 (HQ, S2, S3) with one user per role, plus a second company T2."""
+    """Company T1 (HQ, S2, S3) with one user per tag, plus a second company T2."""
     with SessionLocal() as db:
         db.execute(text("TRUNCATE core.company, core.permission CASCADE"))
         db.commit()
@@ -99,7 +100,7 @@ def world(migrated) -> World:
         t2 = Company(code="T2", name="Test Two")
         db.add(t2)
         db.flush()
-        sync_system_roles(db, t2)
+        sync_system_tags(db, t2)
         x1 = Location(company_id=t2.id, code="X1", name="Other company store")
         db.add(x1)
         db.flush()
@@ -113,7 +114,22 @@ def client() -> TestClient:
     return TestClient(app)
 
 
-def login(client: TestClient, username: str, password: str = PASSWORD) -> dict[str, str]:
-    resp = client.post("/api/v1/auth/login", json={"username": username, "password": password})
+def login(
+    client: TestClient,
+    username: str,
+    password: str = PASSWORD,
+    *,
+    edit: bool = False,
+    remember: bool = True,
+) -> dict[str, str]:
+    """Log in on this client's "computer". edit=True authorizes the device for writing."""
+    resp = client.post(
+        "/api/v1/auth/login",
+        json={"username": username, "password": password, "remember": remember},
+    )
     assert resp.status_code == 200, resp.text
+    if edit:
+        with SessionLocal() as db:
+            db.get(Device, uuid.UUID(resp.json()["device"]["id"])).can_edit = True
+            db.commit()
     return {"Authorization": f"Bearer {resp.json()['access_token']}"}

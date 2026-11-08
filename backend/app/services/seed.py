@@ -3,9 +3,9 @@
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.core.permissions import PERMISSIONS, ROLE_TEMPLATES
+from app.core.permissions import PERMISSIONS, TAG_TEMPLATES
 from app.core.security import hash_password
-from app.models import AppUser, Company, Location, Permission, Role
+from app.models import AppUser, Company, Location, Permission, Tag
 
 
 def sync_permissions(db: Session) -> None:
@@ -15,31 +15,37 @@ def sync_permissions(db: Session) -> None:
             existing[code].description = desc
         else:
             db.add(Permission(code=code, description=desc))
-    # Codes removed from the registry are deleted (cascades from role_permission).
+    # Codes removed from the registry are deleted (cascades from tag_permission).
     for code, perm in existing.items():
         if code not in PERMISSIONS:
             db.delete(perm)
     db.flush()
 
 
-def sync_system_roles(db: Session, company: Company) -> dict[str, Role]:
+def sync_system_tags(db: Session, company: Company) -> dict[str, Tag]:
+    """Create missing system tags and reset their permissions to the template.
+
+    Name and color are only set on creation, so the owner can rename / recolor them.
+    """
     perms = {p.code: p for p in db.scalars(select(Permission))}
-    roles = {
-        r.code: r
-        for r in db.scalars(select(Role).where(Role.company_id == company.id))
-    }
-    for tpl in ROLE_TEMPLATES.values():
-        role = roles.get(tpl.code)
-        if role is None:
-            role = Role(company_id=company.id, code=tpl.code, is_system=True)
-            db.add(role)
-            roles[tpl.code] = role
-        if role.is_system:
-            role.name = tpl.name
-            role.all_locations = tpl.all_locations
-            role.permissions = [perms[c] for c in sorted(tpl.permissions)]
+    tags = {t.code: t for t in db.scalars(select(Tag).where(Tag.company_id == company.id))}
+    for tpl in TAG_TEMPLATES.values():
+        tag = tags.get(tpl.code)
+        if tag is None:
+            tag = Tag(
+                company_id=company.id,
+                code=tpl.code,
+                name=tpl.name,
+                color=tpl.color,
+                is_system=True,
+            )
+            db.add(tag)
+            tags[tpl.code] = tag
+        if tag.is_system:
+            tag.all_locations = tpl.all_locations
+            tag.permissions = [perms[c] for c in sorted(tpl.permissions)]
     db.flush()
-    return roles
+    return tags
 
 
 def bootstrap(
@@ -51,9 +57,9 @@ def bootstrap(
     hq_name: str,
     admin_username: str,
     admin_password: str,
-    admin_display_name: str = "Administrator",
+    admin_display_name: str = "Owner",
 ) -> AppUser:
-    """Create the company, an HQ location, system roles and an owner+admin user."""
+    """Create the company, an HQ location, system tags and an owner user."""
     sync_permissions(db)
 
     company = db.scalar(select(Company).where(Company.code == company_code))
@@ -61,7 +67,7 @@ def bootstrap(
         company = Company(code=company_code, name=company_name)
         db.add(company)
         db.flush()
-    roles = sync_system_roles(db, company)
+    tags = sync_system_tags(db, company)
 
     hq = db.scalar(
         select(Location).where(Location.company_id == company.id, Location.code == hq_code)
@@ -79,7 +85,7 @@ def bootstrap(
             display_name=admin_display_name,
             password_hash=hash_password(admin_password),
             default_location_id=hq.id,
-            roles=[roles["owner"], roles["admin"]],
+            tags=[tags["owner"]],
         )
         db.add(user)
     db.commit()

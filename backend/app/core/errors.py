@@ -18,6 +18,11 @@ class AppError(Exception):
         self.details = details or {}
 
 
+class BadRequest(AppError):
+    status_code = 400
+    code = "BAD_REQUEST"
+
+
 class Unauthenticated(AppError):
     status_code = 401
     code = "UNAUTHENTICATED"
@@ -26,6 +31,12 @@ class Unauthenticated(AppError):
 class Forbidden(AppError):
     status_code = 403
     code = "FORBIDDEN"
+
+
+class DeviceNotAuthorized(Forbidden):
+    """The user may do this, but not from this computer."""
+
+    code = "DEVICE_NOT_AUTHORIZED"
 
 
 class NotFound(AppError):

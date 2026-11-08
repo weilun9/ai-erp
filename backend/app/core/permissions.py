@@ -1,8 +1,11 @@
-"""Permission codes and default role templates (design doc section 7).
+"""Permission codes and default tag templates (design doc section 7).
 
 Codes follow ``module.object.action``. Field-level codes start with ``field.``.
 The registry here is the single source of truth: ``app.services.seed`` syncs it
-into ``core.permission`` and the system roles of each company.
+into ``core.permission`` and the system tags of each company.
+
+Action suffix ``read``/``run``/``use`` = read-only; anything else is a write and is only
+allowed from a device the owner authorized (see Principal.require).
 """
 
 from dataclasses import dataclass
@@ -15,8 +18,10 @@ PERMISSIONS: dict[str, str] = {
     "core.location.manage": "Create and edit stores / warehouses",
     "core.user.read": "View users",
     "core.user.manage": "Create, edit and deactivate users",
-    "core.role.read": "View roles",
-    "core.role.manage": "Create and edit roles",
+    "core.tag.read": "View tags",
+    "core.tag.manage": "Create and edit tags",
+    "core.tag.assign": "Assign tags to employees",
+    "core.device.manage": "Authorize devices for editing and sign devices out",
     # master data
     "md.item.read": "View items",
     "md.item.manage": "Create and edit items",
@@ -63,9 +68,10 @@ PERMISSIONS: dict[str, str] = {
 
 
 @dataclass(frozen=True)
-class RoleTemplate:
+class TagTemplate:
     code: str
     name: str
+    color: str
     all_locations: bool
     permissions: frozenset[str]
 
@@ -78,13 +84,14 @@ def _reads() -> frozenset[str]:
     return frozenset(c for c in PERMISSIONS if c.endswith(".read"))
 
 
-ROLE_TEMPLATES: dict[str, RoleTemplate] = {
+TAG_TEMPLATES: dict[str, TagTemplate] = {
     t.code: t
     for t in (
-        RoleTemplate("owner", "Owner", True, frozenset(PERMISSIONS)),
-        RoleTemplate(
+        TagTemplate("owner", "老板", "#d4a017", True, frozenset(PERMISSIONS)),
+        TagTemplate(
             "clerk",
-            "Clerk",
+            "书记",
+            "#1677ff",
             False,
             _match("md.", "pur.", "sal.", "inv.", "core.issue.")
             | {
@@ -98,17 +105,19 @@ ROLE_TEMPLATES: dict[str, RoleTemplate] = {
                 "ai.kb.read",
             },
         ),
-        RoleTemplate(
+        TagTemplate(
             "accountant",
-            "Accountant",
+            "会计",
+            "#52c41a",
             True,
             (_reads() - {"core.issue.read", "audit.read"})
             | _match("field.")
             | {"report.run", "acc.period.close", "ai.chat.use"},
         ),
-        RoleTemplate(
+        TagTemplate(
             "cashier",
-            "Cashier",
+            "收银员",
+            "#fa8c16",
             False,
             frozenset(
                 {
@@ -122,17 +131,26 @@ ROLE_TEMPLATES: dict[str, RoleTemplate] = {
                 }
             ),
         ),
-        RoleTemplate(
+        TagTemplate(
             "admin",
-            "System administrator",
+            "系统管理员",
+            "#722ed1",
             True,
-            _match("core.company.", "core.location.", "core.user.", "core.role.")
+            _match("core.company.", "core.location.", "core.user.")
+            | {"core.tag.read"}
             | {"ai.kb.manage", "ai.kb.read", "ai.chat.use", "audit.read", "field.cost.read"},
         ),
     )
 }
 
 # Unknown codes in templates are a programming error; fail at import time.
-for _t in ROLE_TEMPLATES.values():
+for _t in TAG_TEMPLATES.values():
     _unknown = _t.permissions - PERMISSIONS.keys()
-    assert not _unknown, f"role {_t.code} has unknown permissions {_unknown}"
+    assert not _unknown, f"tag {_t.code} has unknown permissions {_unknown}"
+
+
+READ_ACTIONS = frozenset({"read", "run", "use"})
+
+
+def is_write(code: str) -> bool:
+    return code.rsplit(".", 1)[-1] not in READ_ACTIONS

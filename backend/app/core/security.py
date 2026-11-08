@@ -1,13 +1,13 @@
+import hashlib
+import secrets
 import uuid
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
-from typing import Literal
 
 import jwt
 from pwdlib import PasswordHash
 
 from app.core.config import get_settings
-
-TokenType = Literal["access", "refresh"]
 
 _hasher = PasswordHash.recommended()  # argon2id
 
@@ -26,36 +26,54 @@ def verify_password(password: str, password_hash: str | None) -> bool:
     return _hasher.verify(password, password_hash)
 
 
-def create_token(user_id: uuid.UUID, token_type: TokenType) -> tuple[str, int]:
-    """Return (jwt, lifetime_seconds)."""
+# --- opaque tokens (device cookie, session cookie) -------------------------------------
+# High-entropy random strings; only their SHA-256 is stored, so a DB leak does not leak them.
+
+
+def new_opaque_token() -> str:
+    return secrets.token_urlsafe(32)
+
+
+def hash_token(token: str) -> str:
+    return hashlib.sha256(token.encode()).hexdigest()
+
+
+# --- access JWT ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class AccessClaims:
+    user_id: uuid.UUID
+    session_id: uuid.UUID
+
+
+def create_access_token(user_id: uuid.UUID, session_id: uuid.UUID) -> tuple[str, int]:
+    """Return (jwt, lifetime_seconds). Short-lived; the session cookie renews it."""
     s = get_settings()
-    lifetime = (
-        timedelta(minutes=s.access_token_minutes)
-        if token_type == "access"
-        else timedelta(days=s.refresh_token_days)
-    )
+    lifetime = timedelta(minutes=s.access_token_minutes)
     now = datetime.now(UTC)
     payload = {
         "sub": str(user_id),
-        "typ": token_type,
+        "sid": str(session_id),
+        "typ": "access",
         "iat": now,
         "exp": now + lifetime,
-        "jti": uuid.uuid4().hex,
     }
-    return jwt.encode(payload, s.jwt_secret, algorithm=s.jwt_algorithm), int(
-        lifetime.total_seconds()
-    )
+    token = jwt.encode(payload, s.jwt_secret, algorithm=s.jwt_algorithm)
+    return token, int(lifetime.total_seconds())
 
 
-def decode_token(token: str, expected_type: TokenType) -> uuid.UUID | None:
-    """Return the user id, or None if the token is invalid, expired or of the wrong type."""
+def decode_access_token(token: str) -> AccessClaims | None:
     s = get_settings()
     try:
         payload = jwt.decode(
-            token, s.jwt_secret, algorithms=[s.jwt_algorithm], options={"require": ["exp", "sub"]}
+            token,
+            s.jwt_secret,
+            algorithms=[s.jwt_algorithm],
+            options={"require": ["exp", "sub", "sid"]},
         )
-        if payload.get("typ") != expected_type:
+        if payload.get("typ") != "access":
             return None
-        return uuid.UUID(payload["sub"])
+        return AccessClaims(uuid.UUID(payload["sub"]), uuid.UUID(payload["sid"]))
     except (jwt.PyJWTError, ValueError):
         return None

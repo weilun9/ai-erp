@@ -1,14 +1,14 @@
 import pytest
 from sqlalchemy import func, select
 
-from app.core.permissions import PERMISSIONS, ROLE_TEMPLATES
+from app.core.permissions import PERMISSIONS, TAG_TEMPLATES
 from app.db.session import SessionLocal
-from app.models import Company, Permission, Role
-from app.services.seed import sync_permissions, sync_system_roles
+from app.models import Company, Permission, Tag
+from app.services.seed import sync_permissions, sync_system_tags
 
 
-def test_role_templates_match_design_doc() -> None:
-    t = ROLE_TEMPLATES
+def test_tag_templates_match_design_doc() -> None:
+    t = TAG_TEMPLATES
     assert set(t) == {"owner", "clerk", "accountant", "cashier", "admin"}
     # Cashiers never see cost price.
     assert "field.cost.read" not in t["cashier"].permissions
@@ -30,10 +30,21 @@ def test_seed_is_idempotent(world) -> None:
         company = db.scalar(select(Company).where(Company.code == "T1"))
         for _ in range(2):
             sync_permissions(db)
-            sync_system_roles(db, company)
+            sync_system_tags(db, company)
         db.commit()
         assert db.scalar(select(func.count()).select_from(Permission)) == len(PERMISSIONS)
-        roles = db.scalars(select(Role).where(Role.company_id == company.id)).all()
-        assert len(roles) == len(ROLE_TEMPLATES)
-        owner = next(r for r in roles if r.code == "owner")
+        tags = db.scalars(select(Tag).where(Tag.company_id == company.id)).all()
+        assert len(tags) == len(TAG_TEMPLATES)
+        owner = next(t for t in tags if t.code == "owner")
         assert {p.code for p in owner.permissions} == set(PERMISSIONS)
+
+
+def test_write_detection() -> None:
+    from app.core.permissions import is_write
+
+    assert not is_write("md.item.read")
+    assert not is_write("report.run")
+    assert not is_write("ai.chat.use")
+    assert is_write("pur.doc.post")
+    assert is_write("core.tag.assign")
+    assert is_write("pos.sale.create")

@@ -3,10 +3,12 @@
 from app.models.core import (  # noqa: F401
     AppUser,
     Company,
+    Device,
     Location,
     Permission,
-    Role,
-    role_permission,
+    Tag,
+    UserSession,
+    tag_permission,
     user_location_scope,
-    user_role,
+    user_tag,
 )
