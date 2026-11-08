@@ -42,3 +42,5 @@ jobs:
         run: alembic upgrade head
       - name: Tests
         run: pytest -q
+      - name: End-to-end demo
+        run: python -m app.demo
