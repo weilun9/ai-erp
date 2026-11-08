@@ -1,11 +1,13 @@
 import uuid
 from datetime import UTC, date, datetime, timedelta
+from zoneinfo import ZoneInfo
 
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import func, select
 
 from app.db.session import SessionLocal
+from app.localization.my import TIMEZONE
 from app.main import app
 from app.models import EventLog, PosSale
 from tests.conftest import login
@@ -252,7 +254,7 @@ def test_close_shift_counts_cash_and_needs_a_note_when_off(till) -> None:
 
 def test_reports_include_the_till(till, client) -> None:
     _sale(till, [kopi("2")], cash("10"))
-    today = date.today().isoformat()
+    today = datetime.now(ZoneInfo(TIMEZONE)).date().isoformat()  # the shop's business day
     summary = client.get(
         "/api/v1/reports/sales-summary",
         params={"date_from": today, "date_to": today, "group_by": "customer"},
