@@ -44,3 +44,5 @@ jobs:
         run: pytest -q
       - name: End-to-end demo
         run: python -m app.demo
+      - name: Knowledge base retrieval check (keyword only in CI)
+        run: python -m app.kb_eval

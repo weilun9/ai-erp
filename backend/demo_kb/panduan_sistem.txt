@@ -1,0 +1,24 @@
+# Panduan sistem untuk kakitangan (data demo)
+
+Panduan ringkas cara menggunakan sistem untuk kerja harian.
+
+## Komputer dan log masuk
+
+### Komputer baharu
+Setiap komputer mesti diluluskan oleh pemilik sebelum boleh log masuk. Kali pertama anda log masuk di komputer baharu, sistem akan menolak dengan mesej DEVICE_NOT_AUTHORIZED. Minta pemilik buka senarai peranti dan tekan Luluskan untuk komputer anda, kemudian log masuk semula. Komputer yang sudah diluluskan akan diingati dan anda kekal log masuk.
+
+## Dokumen jualan dan pembayaran
+
+### Padankan nota kredit dengan invois (knock-off)
+Nota kredit pelanggan yang dibuat daripada invois akan dipadankan dengan invois itu secara automatik apabila nota kredit dipos. Untuk padanan manual, buka Penyata Pelanggan, pilih invois dan nota kredit, kemudian tekan Knock-off. Padanan manual boleh dibatalkan selagi dokumen belum dibatalkan.
+
+### Terimaan pelanggan
+Apabila pelanggan membayar tanpa menyebut invois, sistem akan membayar invois yang paling lama dahulu. Baki yang tinggal disimpan sebagai pendahuluan pelanggan.
+
+## Stok
+
+### Kiraan stok (stocktake)
+Buat dokumen Kiraan Stok untuk kedai anda, masukkan kuantiti yang dikira, kemudian Simpan. Sistem membandingkan kiraan dengan stok dalam sistem pada masa kiraan dan menunjukkan perbezaan. Pilih "kosongkan barang yang tidak dikira" hanya jika anda mengira seluruh kedai. Selepas disemak oleh penyelia, tekan Pos.
+
+### Pindahan stok antara kedai
+Gunakan dokumen Pindahan Stok. Stok keluar dari kedai asal dan masuk ke kedai tujuan pada masa yang sama, pada kos purata kedai asal.

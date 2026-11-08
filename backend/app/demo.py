@@ -375,6 +375,30 @@ def main() -> None:
                 say(f"  tool call: {c['name']} {c['arguments']}")
         say(f"A: {turn['messages'][-1]['content']}")
 
+    chapter(10, "Knowledge base: company rules the AI answers from, with sources")
+    from app.kb_samples import DOCS, upload_all
+    from app.services.embeddings import get_embedder
+
+    def upload(path, files, data):
+        return check(office.http.post(API + path, files=files, data=data, headers=office.h))
+
+    upload_all(upload)
+    for _, _, title, _, tags in DOCS:
+        say(f"Uploaded '{title}' - visible to {', '.join(tags) if tags else 'everyone'}")
+    embedder = get_embedder()
+    say(f"Search: {'vector, ' + embedder.name if embedder else 'keyword only (no EMBED_*)'}")
+    q = "Nestle minimum order"
+    for who, pc in (("Owner", office), ("Cashier", counter)):
+        hits = pc.get("/kb/search", q=q, limit=2)
+        found = "; ".join(f"{h['title']} > {h['section']}" for h in hits) or "nothing"
+        say(f"{who} searches '{q}': {found}")
+    if get_chat_model() is not None:
+        conv = counter.post("/ai/conversations", {})["id"]
+        question = "顾客没有收据可以退货吗？退款超过 RM50 要怎么办？"
+        turn = counter.post(f"/ai/conversations/{conv}/messages", {"content": question})
+        say(f"Cashier asks: {question}")
+        say(f"A: {turn['messages'][-1]['content']}")
+
     print(f"\nDone. Data kept in database '{DEMO_DB}'. Explore it with the API docs:")
     print("   set POSTGRES_DB=erp_demo, run uvicorn app.main:app, open /docs, log in as owner")
 

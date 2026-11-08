@@ -8,6 +8,7 @@ from app.api.v1 import (
     finance,
     health,
     inbox,
+    kb,
     locations,
     masterdata,
     me,
@@ -56,6 +57,7 @@ def create_app() -> FastAPI:
     v1.include_router(stockdocs.router)
     v1.include_router(reports.router)
     v1.include_router(ai.router)
+    v1.include_router(kb.router)
     app.include_router(v1)
     return app
 

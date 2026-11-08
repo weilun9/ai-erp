@@ -4,6 +4,8 @@ import uuid
 # Must run before any app import so settings/engine point at the test database.
 os.environ["POSTGRES_DB"] = "erp_test"
 os.environ["APP_ENV"] = "test"
+os.environ["EMBED_PROVIDER"] = "none"  # tests set their own embedder, never download one
+os.environ["LLM_BASE_URL"] = ""  # and never call a real model
 
 from dataclasses import dataclass  # noqa: E402
 from pathlib import Path  # noqa: E402

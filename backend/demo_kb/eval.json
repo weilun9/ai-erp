@@ -1,0 +1,23 @@
+[
+  {"q": "顾客没有收据可以退货吗？", "doc": "sop", "section": "可以退货的条件"},
+  {"q": "Refund over RM50 needs whose approval?", "doc": "sop", "section": "退款方式"},
+  {"q": "收银差额超过多少要写报告？", "doc": "sop", "section": "差额处理"},
+  {"q": "How much float money stays in the cash drawer at shift change?", "doc": "sop", "section": "交班"},
+  {"q": "Bila perlu deposit wang tunai ke bank?", "doc": "sop", "section": "当日存款"},
+  {"q": "过期商品在货架上怎么处理？", "doc": "sop", "section": "过期或损坏"},
+  {"q": "What is Nestle's minimum order?", "doc": "supplier", "section": "Ordering"},
+  {"q": "雀巢过期货品要在几天内退货？", "doc": "supplier", "section": "Returns and credit notes"},
+  {"q": "When do we pay Roti Segar?", "doc": "supplier", "section": "Roti Segar Sdn Bhd (bakery) > Payment"},
+  {"q": "What do we need to get the Nestle rebate?", "doc": "supplier", "section": "Rebate"},
+  {"q": "Which tax code is service tax and what is it used for?", "doc": "sst", "section": "Service tax"},
+  {"q": "超过72小时还能取消电子发票吗？", "doc": "sst", "section": "Cancelling"},
+  {"q": "What TIN do we use for individual customers who have no TIN?", "doc": "sst", "section": "Customers without a TIN"},
+  {"q": "Is bread taxable?", "doc": "sst", "section": "Sales tax codes"},
+  {"q": "How do I get a new computer approved for login?", "doc": "manual", "section": "Komputer baharu"},
+  {"q": "怎么把退货单对冲到发票？", "doc": "manual", "section": "knock-off"},
+  {"q": "Macam mana buat kiraan stok?", "doc": "manual", "section": "Kiraan stok"},
+  {"q": "At what cost does a stock transfer between shops move?", "doc": "manual", "section": "Pindahan"},
+  {"q": "RS-CN", "doc": "supplier", "section": "Unsold bread"},
+  {"q": "SV8 是什么税？", "doc": "sst", "section": "Service tax"},
+  {"q": "EI00000000010", "doc": "sst", "section": "Customers without a TIN"}
+]

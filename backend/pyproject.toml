@@ -18,9 +18,12 @@ dependencies = [
     "pypdfium2>=4.30",
     "pillow>=11",
     "mcp>=2.3,<3",
+    "pgvector>=0.4",
 ]
 
 [project.optional-dependencies]
+# Local embeddings for the knowledge base (CPU, in-process; EMBED_PROVIDER=local)
+local-embed = ["fastembed>=0.9"]
 dev = [
     "pytest>=8.3",
     "httpx>=0.28",

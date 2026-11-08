@@ -37,6 +37,7 @@ from app.models.invdoc import (  # noqa: F401
     StockWriteOff,
     StockWriteOffLine,
 )
+from app.models.kb import KbChunk, KbDocument  # noqa: F401
 from app.models.md import (  # noqa: F401
     Customer,
     Item,

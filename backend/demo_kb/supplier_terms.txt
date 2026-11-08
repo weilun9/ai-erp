@@ -1,0 +1,28 @@
+# Supplier trading terms (demo data)
+
+Internal summary of the trading terms agreed with our main suppliers. Purchasing, accounts and the owner only; do not share with customers or other suppliers.
+
+## Nestle Products Sdn Bhd
+
+### Ordering and delivery
+Minimum order is RM500 per delivery before tax. Orders placed by Tuesday 5pm are delivered on Thursday. Deliveries below the minimum are charged a RM25 delivery fee, which appears as a deduction on their payment advice.
+
+### Payment
+Payment terms are 30 days from the invoice date. We pay by bank transfer; Nestle sends a payment advice listing the invoices and credit notes it covers.
+
+### Returns and credit notes
+Expired or damaged Nestle goods can be returned within 14 days of the expiry date, with a return note signed by their salesman. Nestle issues a credit note (CN) within two weeks, quoting the original invoice number. Until the CN arrives we record a provisional supplier CN in the system.
+
+### Rebate
+A quarterly volume rebate of 2% applies when purchases in the quarter exceed RM30,000 before tax. The rebate is paid as a credit note in the following month.
+
+## Roti Segar Sdn Bhd (bakery)
+
+### Delivery
+Bread is delivered every morning before 8am except Sunday. The driver takes back yesterday's unsold bread on the same visit.
+
+### Unsold bread and credit notes
+Unsold bread returned the next morning is credited in full. Roti Segar issues one credit note per week covering all returns of that week, usually on Monday; the CN number starts with RS-CN.
+
+### Payment
+Payment is weekly, every Friday, for the deliveries of the previous week less that week's credit note. Small differences under RM2 are written off as rounding.

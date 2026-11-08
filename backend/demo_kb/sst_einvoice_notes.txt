@@ -1,0 +1,25 @@
+# SST and e-invoice notes for accounts (demo data)
+
+How tax codes and LHDN MyInvois e-invoices are handled in this system. For accounts and the owner.
+
+## Tax codes in the system
+
+### Sales tax codes
+ST5 is sales tax at 5% and ST10 is sales tax at 10%; they are set on the item as its sales or purchase tax code. NA means the item is not taxable, and EX means exempt. Basic groceries such as rice, sugar and bread are kept as NA unless the accountant decides otherwise.
+
+### Service tax
+SV8 is service tax at 8%. In this system it is used for supplier fees we are charged, such as freight, listing or promotion fees deducted on a supplier payment advice. The fee amount on the advice includes the tax, and the system splits it out.
+
+## LHDN MyInvois e-invoices
+
+### Before sending
+Fill in the company profile first: TIN, business registration number, MSIC code, address, state code and phone. Only posted sales invoices and customer credit notes can be sent. Use Preview to see what LHDN would reject before submitting.
+
+### Customers without a TIN
+Individual customers who did not ask for their own e-invoice are sent with the General Public TIN EI00000000010. Business customers must have their own TIN in the customer record.
+
+### Cancelling
+A validated e-invoice can be cancelled within 72 hours of validation. After 72 hours the only way to correct it is a credit note that refers to the original invoice. A sales invoice with a live e-invoice cannot be voided until the e-invoice is cancelled.
+
+### Monthly walk-in sales
+Cash sales to walk-in customers who do not ask for an e-invoice will be reported in one consolidated e-invoice per month (not built in the system yet).

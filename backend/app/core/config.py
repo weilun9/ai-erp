@@ -38,6 +38,16 @@ class Settings(BaseSettings):
     llm_timeout_seconds: float = 60
     llm_max_tool_calls: int = 10
 
+    # Knowledge base embeddings: none (keyword search only) | local (fastembed, CPU,
+    # in-process) | openai (any OpenAI-compatible /embeddings endpoint, e.g. bge-m3).
+    embed_provider: str = "none"
+    embed_model: str = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
+    embed_base_url: str = ""
+    embed_api_key: str = ""
+    kb_search_mode: str = "auto"  # auto | vector | keyword | hybrid
+    kb_dir: str = "var/kb"
+    kb_max_mb: int = 20
+
     vision_base_url: str = ""
     vision_api_key: str = ""
     vision_model: str = ""
@@ -49,6 +59,11 @@ class Settings(BaseSettings):
     myinvois_client_secret: str = ""
     myinvois_onbehalfof: str = ""  # TIN of the taxpayer when we act as intermediary
     myinvois_timeout_seconds: float = 30
+
+    @property
+    def kb_path(self) -> Path:
+        p = Path(self.kb_dir)
+        return p if p.is_absolute() else Path(__file__).resolve().parents[2] / p
 
     @property
     def inbox_path(self) -> Path:

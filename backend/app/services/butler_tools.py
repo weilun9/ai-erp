@@ -26,7 +26,7 @@ from sqlalchemy.orm import Session
 from app.api.v1 import finance, locations, masterdata, purchasing, sales, stock
 from app.core.errors import AppError, NotFound
 from app.models import Customer, Item, Location, Supplier
-from app.services import reports
+from app.services import kb, reports
 from app.services.auth import Principal
 
 MAX_ROWS = 50
@@ -422,6 +422,13 @@ def t_locations(db, p, a):
     ]
 
 
+def t_knowledge(db, p, a):
+    query = str(a.get("query", "")).strip()
+    if not query:
+        raise ToolError("query is empty")
+    return kb.cited(kb.search(db, p, query, limit=6))
+
+
 # --- write tools (proposal only) ----------------------------------------------------------
 
 
@@ -696,6 +703,16 @@ TOOLS: list[Tool] = [
         {"type": "object", "properties": {}},
         t_locations,
         all_of=("core.location.read",),
+    ),
+    Tool(
+        "search_knowledge",
+        "Search the company knowledge base: rules and SOPs (returns, cashier shift close), "
+        "supplier terms, SST / e-invoice notes, how to use this system. Use it for any "
+        "'how do we / what is the rule / what does the contract say' question. Not for stock, "
+        "prices or documents: use the other tools for those. Cite results as [1], [2].",
+        {"type": "object", "properties": {"query": {"type": S}}, "required": ["query"]},
+        t_knowledge,
+        all_of=("ai.kb.read",),
     ),
     Tool(
         "draft_document",
