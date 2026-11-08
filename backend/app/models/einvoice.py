@@ -6,9 +6,9 @@ by a partial unique index, so a document can never be sent twice at the same tim
 INVALID / FAILED / CANCELLED rows stay as history; the document may then be sent again.
 """
 
-import uuid
 from datetime import datetime
 from typing import Any
+from uuid import UUID
 
 from sqlalchemy import (
     CheckConstraint,
@@ -43,9 +43,9 @@ class Einvoice(UUIDPk, Base):
         ),
         {"schema": "sal"},
     )
-    company_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("core.company.id"), index=True)
+    company_id: Mapped[UUID] = mapped_column(ForeignKey("core.company.id"), index=True)
     doc_type: Mapped[str] = mapped_column(String(10))  # INV / CN
-    doc_id: Mapped[uuid.UUID] = mapped_column(Uuid, index=True)
+    doc_id: Mapped[UUID] = mapped_column(Uuid, index=True)
     doc_no: Mapped[str] = mapped_column(String(30))
     type_code: Mapped[str] = mapped_column(String(2))  # 01 invoice, 02 credit note
     version: Mapped[str] = mapped_column(String(5))  # document type version, e.g. 1.0
@@ -60,7 +60,7 @@ class Einvoice(UUIDPk, Base):
     last_error: Mapped[str | None] = mapped_column(String(500))
     attempts: Mapped[int] = mapped_column(Integer, server_default=text("0"))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
-    created_by: Mapped[uuid.UUID | None] = mapped_column(Uuid)
+    created_by: Mapped[UUID | None] = mapped_column(Uuid)
     submitted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     validated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     cancelled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
