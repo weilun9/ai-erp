@@ -23,6 +23,7 @@ from app.models.fin import (  # noqa: F401
     SupplierPayment,
     SupplierPaymentLine,
 )
+from app.models.inbox import BankTxn, InboxExtraction, InboxFile  # noqa: F401
 from app.models.inv import StockBalance, StockLedger  # noqa: F401
 from app.models.invdoc import (  # noqa: F401
     StockAdjustment,

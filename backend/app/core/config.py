@@ -27,6 +27,19 @@ class Settings(BaseSettings):
     access_token_minutes: int = 15
     refresh_token_days: int = 7
 
+    # Scan intake
+    inbox_dir: str = "var/inbox"  # relative paths are under backend/
+    inbox_max_mb: int = 20
+    vision_base_url: str = ""
+    vision_api_key: str = ""
+    vision_model: str = ""
+    vision_timeout_seconds: float = 120
+
+    @property
+    def inbox_path(self) -> Path:
+        p = Path(self.inbox_dir)
+        return p if p.is_absolute() else Path(__file__).resolve().parents[2] / p
+
     @property
     def is_dev(self) -> bool:
         return self.app_env in ("dev", "test")

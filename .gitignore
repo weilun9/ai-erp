@@ -31,4 +31,5 @@ Thumbs.db
 
 # Local data
 data/
+backend/var/
 *.log
