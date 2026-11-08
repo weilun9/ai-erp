@@ -6,6 +6,7 @@ Nothing configured = the AI butler is off. Tests swap in a scripted model with
 """
 
 import json
+import re
 import time
 from dataclasses import dataclass, field
 from typing import Any, Protocol
@@ -42,7 +43,9 @@ class Reply:
 class ChatModel(Protocol):
     name: str
 
-    def complete(self, messages: list[dict[str, Any]], tools: list[dict[str, Any]]) -> Reply: ...
+    def complete(
+        self, messages: list[dict[str, Any]], tools: list[dict[str, Any]], tool_choice: str = "auto"
+    ) -> Reply: ...
 
 
 class OpenAICompatible:
@@ -50,11 +53,13 @@ class OpenAICompatible:
         self.base_url = base_url.rstrip("/")
         self.api_key, self.name, self.timeout = api_key, model, timeout
 
-    def complete(self, messages: list[dict[str, Any]], tools: list[dict[str, Any]]) -> Reply:
+    def complete(
+        self, messages: list[dict[str, Any]], tools: list[dict[str, Any]], tool_choice: str = "auto"
+    ) -> Reply:
         body: dict[str, Any] = {"model": self.name, "messages": messages, "temperature": 0.1}
         if tools:
             body["tools"] = tools
-            body["tool_choice"] = "auto"
+            body["tool_choice"] = tool_choice  # "none" = must answer in words now
         started = time.monotonic()
         try:
             resp = httpx.post(
@@ -141,3 +146,14 @@ def get_chat_model() -> ChatModel | None:
     if not (s.llm_base_url and s.llm_model):
         return None
     return OpenAICompatible(s.llm_base_url, s.llm_api_key, s.llm_model, s.llm_timeout_seconds)
+
+
+# Some models write their native tool-call markup as text when they may not call tools
+# (DeepSeek: <｜DSML｜...>). Never show that to a user.
+_MARKUP = re.compile(r"<[|｜]+[A-Za-z]*[|｜]+|</?tool_call|<function_calls")
+
+
+def clean_answer(text: str | None) -> str | None:
+    if not text or not text.strip() or _MARKUP.search(text):
+        return None
+    return text.strip()

@@ -27,10 +27,12 @@ class Scripted:
     def __init__(self, *steps):
         self.steps = list(steps)
         self.seen: list[tuple[list, list]] = []
+        self.choices: list[str] = []
         self.n = 0
 
-    def complete(self, messages, tools):
+    def complete(self, messages, tools, tool_choice="auto"):
         self.seen.append((messages, tools))
+        self.choices.append(tool_choice)
         step = self.steps.pop(0) if self.steps else ("say", "done")
         if step[0] == "say":
             return Reply(step[1], model="scripted", input_tokens=100, output_tokens=10)
@@ -217,8 +219,21 @@ def test_tool_calls_are_capped(store, client, model) -> None:  # noqa: F811
     m = model(*[("tool", "list_stores", {})] * 30)
     turn = _ok(_chat(client, store["h"], "loop forever")[0])
     assert turn["tool_calls"] == 10
-    assert m.seen[-1][1] == []  # the last call had no tools: it had to answer
+    assert m.choices[-1] == "none" and m.choices[:-1] == ["auto"] * 10  # then it must answer
+    assert m.seen[-1][0][-1]["role"] == "system"  # told why
     assert len(m.seen) == 11
+
+
+def test_model_markup_never_reaches_the_user(store, client, model) -> None:  # noqa: F811
+    model(("say", '<｜｜DSML｜｜ calls><｜｜DSML｜｜ invoke name="search_items">'))
+    turn = _ok(_chat(client, store["h"], "price of nescafe?")[0])
+    assert turn["messages"][-1]["content"].startswith("Sorry, I could not finish")
+
+
+def test_empty_search_says_so(store, client, model) -> None:  # noqa: F811
+    m = model(("tool", "search_items", {"query": "Nescafe Gold"}), ("say", "not stocked"))
+    _ok(_chat(client, store["h"], "nescafe?")[0])
+    assert "not in the item list" in m.results()[0]["result"]["note"]
 
 
 def test_chats_are_private(store, client, model) -> None:  # noqa: F811
@@ -257,8 +272,9 @@ def test_draft_waits_for_confirm(store, client, model) -> None:  # noqa: F811
     assert card["status"] == "PENDING"
     assert card["summary"]["customer"] == "ACME Acme Mart"
     assert card["summary"]["lines"] == [
-        {"item": "MILO MILO", "uom": "CTN", "qty": "2", "unit_price": "list price"}
+        {"item": "MILO MILO", "uom": "CTN", "qty": "2", "unit_price": "list 55.0000"}
     ]
+    assert card["summary"]["estimated_subtotal"] == "110.00"
     assert _invoices() == 0  # nothing written yet
 
     done = client.post(f"{AI}/actions/{card['id']}/confirm", headers=store["h"]).json()
@@ -436,3 +452,13 @@ def test_openai_compatible_client_sends_tools_and_reads_tool_calls(monkeypatch) 
         ]["name"]
         == "search_items"
     )
+
+
+def test_card_carries_the_systems_own_stock_and_credit_checks(store, client, model) -> None:  # noqa: F811
+    turn = _draft(client, store, model, lines=[{"item": "MILO", "qty": 3, "uom": "CTN"}])
+    card = turn["pending_actions"][0]["summary"]
+    assert card["estimated_subtotal"] == "165.00"
+    assert card["checks"] == [
+        "Stock short: MILO MILO has 48 PCS here, this needs 72 PCS (short 24)",
+        "Credit limit: owes RM 0.00 now, RM 165.00 with this (limit RM 100.00)",
+    ]

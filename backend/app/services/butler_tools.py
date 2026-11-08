@@ -228,7 +228,10 @@ def _choice(value: Any, options: tuple[str, ...], name: str) -> str:
 
 def t_search_items(db, p, a):
     found = find_items(db, p, str(a.get("query", "")), limit=min(int(a.get("limit", 10)), 20))
-    return _capped([_item_brief(i) for i in found])
+    out = _capped([_item_brief(i) for i in found])
+    if not found:
+        out["note"] = "No item matches. Tell the user it is not in the item list."
+    return out
 
 
 def t_stock(db, p, a):
@@ -439,6 +442,9 @@ def t_draft(db, p, a):
     if not isinstance(lines_in, list) or not lines_in:
         raise ToolError("A draft needs at least one line")
     lines, shown = [], []
+    estimate: Decimal | None = Decimal(0)
+    need: dict[str, Decimal] = {}  # base units per item
+    names: dict[str, tuple[str, str]] = {}
     for ln in lines_in[:100]:
         item = resolve_item(db, p, str(ln.get("item", "")))
         uom = str(ln.get("uom") or item["base_uom"]).upper()
@@ -458,12 +464,25 @@ def t_draft(db, p, a):
         elif kind == "grn":
             raise ToolError(f"A goods received note needs the price for {item['code']}")
         lines.append(line)
+        unit = line.get("unit_price") or next(
+            (u.get("selling_price") for u in item.get("uoms", []) if u["uom"] == uom), None
+        )
+        if unit is None:
+            estimate = None  # no list price: the document will say MISSING
+        elif estimate is not None:
+            estimate += qty * Decimal(str(unit))
+        factor = next(
+            (Decimal(str(u["factor"])) for u in item.get("uoms", []) if u["uom"] == uom),
+            Decimal(1),
+        )
+        need[item["id"]] = need.get(item["id"], Decimal(0)) + qty * factor
+        names[item["id"]] = (f"{item['code']} {item['name']}", item["base_uom"])
         shown.append(
             {
                 "item": f"{item['code']} {item['name']}",
                 "uom": uom,
                 "qty": str(qty),
-                "unit_price": line.get("unit_price", "list price"),
+                "unit_price": line.get("unit_price") or (f"list {unit}" if unit else "none"),
             }
         )
     doc_date = _date(a.get("doc_date"), "doc_date") or date.today()
@@ -485,9 +504,53 @@ def t_draft(db, p, a):
         ),
         "date": doc_date.isoformat(),
         "lines": shown,
-        "note": "Only a draft is created; saving and posting stay with the user",
+        "estimated_subtotal": (
+            str(estimate.quantize(Decimal("0.01"))) if estimate is not None else None
+        ),
+        "checks": _draft_checks(db, p, kind, party, loc, need, names, estimate),
+        "note": "Before tax and discounts. Only a draft is created on Confirm; saving and "
+        "posting stay with the user",
     }
     return {"summary": summary, "payload": payload}
+
+
+def _draft_checks(db, p, kind, party, loc, need, names, estimate) -> list[str]:
+    """Worked out by the system, so the model never has to do the arithmetic."""
+    out: list[str] = []
+    if kind in ("delivery-order", "sales-invoice") and p.has("inv.balance.read"):
+        for item_id, qty in need.items():
+            rows = stock.balance(
+                p=p,
+                db=db,
+                item_id=uuid.UUID(item_id),
+                location_id=uuid.UUID(loc),
+                page=1,
+                page_size=1,
+            ).items
+            have = rows[0].qty if rows else Decimal(0)
+            if have < qty:
+                name, base = names[item_id]
+                out.append(
+                    f"Stock short: {name} has {have.normalize():f} {base} here, this needs "
+                    f"{qty.normalize():f} {base} (short {(qty - have).normalize():f})"
+                )
+    limit = party.get("credit_limit")
+    if (
+        kind in ("delivery-order", "sales-invoice")
+        and limit not in (None, "0", "0.0000")
+        and estimate is not None
+        and p.has("fin.doc.read")
+    ):
+        owed = finance.open_items(
+            party_type="customer", party_id=uuid.UUID(party["id"]), p=p, db=db
+        ).balance
+        after = owed + estimate
+        if after > Decimal(str(limit)):
+            out.append(
+                f"Credit limit: owes RM {owed:.2f} now, RM {after:.2f} with this "
+                f"(limit RM {Decimal(str(limit)):.2f})"
+            )
+    return out
 
 
 def execute(db: Session, p: Principal, tool: str, payload: dict[str, Any]) -> dict[str, Any]:
