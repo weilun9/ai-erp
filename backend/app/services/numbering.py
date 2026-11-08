@@ -16,6 +16,10 @@ DEFAULT_PREFIX = {
     "OR": "OR",
     "PV": "PV",
     "FEE": "FEE",
+    "ADJ": "ADJ",
+    "WO": "WO",
+    "TRF": "TRF",
+    "STK": "STK",
 }
 
 

@@ -37,7 +37,7 @@ class Move:
     line_id: uuid.UUID | None = None
 
 
-def _lock_balances(
+def lock_balances(
     db: Session, company_id: uuid.UUID, keys: list[tuple[uuid.UUID, uuid.UUID]]
 ) -> dict[tuple[uuid.UUID, uuid.UUID], StockBalance]:
     for item_id, loc_id in keys:
@@ -71,7 +71,7 @@ def apply_moves(
     """Negative stock is allowed (company decision 2026-11-08); pass allow_negative=False
     for flows that must not oversell."""
     keys = sorted({(m.item_id, m.location_id) for m in moves}, key=lambda k: (str(k[0]), str(k[1])))
-    balances = _lock_balances(db, company_id, keys)
+    balances = lock_balances(db, company_id, keys)
 
     # Check every outgoing total first, so a failing document writes nothing.
     if not allow_negative:

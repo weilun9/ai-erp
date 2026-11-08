@@ -24,6 +24,16 @@ from app.models.fin import (  # noqa: F401
     SupplierPaymentLine,
 )
 from app.models.inv import StockBalance, StockLedger  # noqa: F401
+from app.models.invdoc import (  # noqa: F401
+    StockAdjustment,
+    StockAdjustmentLine,
+    Stocktake,
+    StocktakeLine,
+    StockTransfer,
+    StockTransferLine,
+    StockWriteOff,
+    StockWriteOffLine,
+)
 from app.models.md import (  # noqa: F401
     Customer,
     Item,

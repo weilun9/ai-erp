@@ -47,6 +47,7 @@ PERMISSIONS: dict[str, str] = {
     "inv.balance.read": "View stock balances and ledger",
     "inv.doc.create": "Create stock adjustments, transfers and counts",
     "inv.doc.post": "Post stock documents",
+    "inv.doc.void": "Void posted stock documents",
     # POS
     "pos.sale.create": "Ring up POS sales",
     "pos.shift.close": "Close POS shifts",

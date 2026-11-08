@@ -11,6 +11,7 @@ from app.api.v1 import (
     purchasing,
     sales,
     stock,
+    stockdocs,
 )
 from app.core.config import get_settings
 from app.core.errors import install_error_handlers
@@ -44,6 +45,7 @@ def create_app() -> FastAPI:
     v1.include_router(finance.router)
     v1.include_router(finance.issues_router)
     v1.include_router(stock.router)
+    v1.include_router(stockdocs.router)
     app.include_router(v1)
     return app
 
