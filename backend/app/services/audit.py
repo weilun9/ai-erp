@@ -68,3 +68,6 @@ def record(
             request_id=request_id_var.get(),
         )
     )
+
+
+jsonable = _jsonable  # public name for other services

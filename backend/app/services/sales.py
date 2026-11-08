@@ -43,6 +43,7 @@ from app.models import (
     TaxCode,
 )
 from app.services import audit, stock
+from app.services import knockoff as ko
 from app.services.auth import Principal
 from app.services.doclib import EDITABLE, check_common, line_amounts, q2, q4, set_totals, today
 from app.services.numbering import next_doc_no
@@ -353,19 +354,6 @@ def _snapshot(doc) -> dict[str, Any]:
 # --- validation on save -------------------------------------------------------------------
 
 
-def _outstanding(db: Session, p: Principal, customer_id: uuid.UUID) -> Decimal:
-    """Posted invoices minus posted customer CNs. Receipts will be subtracted once they exist."""
-
-    def total(h) -> Decimal:
-        return db.scalar(
-            select(func.coalesce(func.sum(h.total), 0)).where(
-                h.company_id == p.company_id, h.customer_id == customer_id, h.status == "POSTED"
-            )
-        )
-
-    return total(SalesInvoice) - total(CustomerCn)
-
-
 def _check_do_quantities(db: Session, doc) -> None:
     """A DO line is never invoiced beyond what was delivered. Locks the DO lines so two
     invoices saved at the same time cannot both take the same quantity."""
@@ -425,7 +413,7 @@ def _validate_for_save(db: Session, p: Principal, k: Kind, doc) -> list[dict[str
     if k.key == "sales-invoice":
         customer = db.get(Customer, doc.customer_id)
         if customer.credit_limit is not None:
-            outstanding = _outstanding(db, p, doc.customer_id)
+            outstanding = ko.party_balance(db, p.company_id, "C", doc.customer_id)
             if outstanding + doc.total > customer.credit_limit:
                 w: dict[str, Any] = {
                     "code": "CREDIT_LIMIT",
@@ -654,6 +642,11 @@ def post_doc(db: Session, p: Principal, kind: str, doc_id: uuid.UUID, version: i
         )
     doc.cost_total = q2(sum((ln.base_qty * ln.unit_cost for ln in doc.lines), Decimal(0)))
     doc.status = "POSTED"
+    if k.key == "customer-cn" and doc.ref_invoice_id:
+        # The return lowers what the customer owes on the invoice it came from.
+        db.flush()
+        inv = ko.lock_docs(db, p, [("INV", doc.ref_invoice_id)])[doc.ref_invoice_id]
+        ko.settle(db, p, [("INV", inv, doc.total)], [("CN", doc, doc.total)], ("CN", doc.id))
     doc.posted_at = datetime.now(UTC)
     doc.posted_by = p.user_id
     doc.version += 1
@@ -701,6 +694,7 @@ def void_doc(db: Session, p: Principal, kind: str, doc_id: uuid.UUID, version: i
         raise DocState("Void the documents made from this one first", {"documents": blocking})
     was = doc.status
     if was == "POSTED" and k.direction != 0:
+        ko.release_for_void(db, [doc.id], doc.id, p.user_id)
         stock.reverse_doc(
             db, company_id=p.company_id, doc_type=k.doc_type, doc_id=doc.id, doc_no=doc.doc_no
         )

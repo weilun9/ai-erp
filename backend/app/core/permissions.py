@@ -38,6 +38,11 @@ PERMISSIONS: dict[str, str] = {
     "sal.doc.create": "Create and edit sales documents",
     "sal.doc.post": "Post sales documents",
     "sal.doc.void": "Void posted sales documents",
+    # receipts, payments, knock-off
+    "fin.doc.read": "View receipts, payments, knock-offs and statements",
+    "fin.doc.create": "Create receipts and payments; knock off documents",
+    "fin.doc.post": "Post receipts and payments",
+    "fin.doc.void": "Void receipts and payments",
     # inventory
     "inv.balance.read": "View stock balances and ledger",
     "inv.doc.create": "Create stock adjustments, transfers and counts",
@@ -92,7 +97,7 @@ TAG_TEMPLATES: dict[str, TagTemplate] = {
             "书记",
             "#1677ff",
             False,
-            (_match("md.", "pur.", "sal.", "inv.", "core.issue.") - {"md.setup.manage"})
+            (_match("md.", "pur.", "sal.", "fin.", "inv.", "core.issue.") - {"md.setup.manage"})
             | {
                 "core.location.read",
                 "report.run",

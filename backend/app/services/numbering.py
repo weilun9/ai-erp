@@ -6,7 +6,17 @@ from sqlalchemy.orm import Session
 
 from app.models import DocSequence
 
-DEFAULT_PREFIX = {"GRN": "GRN", "SCN": "SCN", "QT": "QT", "DO": "DO", "INV": "INV", "CN": "CN"}
+DEFAULT_PREFIX = {
+    "GRN": "GRN",
+    "SCN": "SCN",
+    "QT": "QT",
+    "DO": "DO",
+    "INV": "INV",
+    "CN": "CN",
+    "OR": "OR",
+    "PV": "PV",
+    "FEE": "FEE",
+}
 
 
 def next_doc_no(db: Session, company_id: uuid.UUID, doc_type: str) -> str:

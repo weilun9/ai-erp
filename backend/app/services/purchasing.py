@@ -41,6 +41,7 @@ from app.models import (
     TaxCode,
 )
 from app.services import audit, stock
+from app.services import knockoff as ko
 from app.services.auth import Principal
 from app.services.doclib import EDITABLE, check_common, line_amounts
 from app.services.doclib import q4 as _q4
@@ -495,6 +496,7 @@ def void_doc(db: Session, p: Principal, kind: str, doc_id: uuid.UUID, version: i
         raise VersionConflict("This document was changed by someone else; reload it")
     was = doc.status
     if was == "POSTED":
+        ko.release_for_void(db, [doc.id], doc.id, p.user_id)
         stock.reverse_doc(
             db, company_id=p.company_id, doc_type=k.doc_type, doc_id=doc.id, doc_no=doc.doc_no
         )
