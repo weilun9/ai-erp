@@ -131,7 +131,7 @@ class AppUser(UUIDPk, AuditColumns, Base):
 class Device(UUIDPk, AuditColumns, Base):
     """A browser / computer, identified by a long-lived HttpOnly cookie.
 
-    Any device may sign in and read; only devices the owner authorized (can_edit) may write.
+    Only devices the owner authorized may sign in; new ones wait as pending.
     """
 
     __tablename__ = "device"
@@ -145,7 +145,7 @@ class Device(UUIDPk, AuditColumns, Base):
     last_seen_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
-    can_edit: Mapped[bool] = mapped_column(Boolean, server_default=text("false"))
+    is_authorized: Mapped[bool] = mapped_column(Boolean, server_default=text("false"))
     authorized_by: Mapped[uuid.UUID | None] = mapped_column(Uuid)
     authorized_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
@@ -164,9 +164,7 @@ class UserSession(UUIDPk, Base):
     )
     token_hash: Mapped[str] = mapped_column(String(64), unique=True)
     remember: Mapped[bool] = mapped_column(Boolean)
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now()
-    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     last_used_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )

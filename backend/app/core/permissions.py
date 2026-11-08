@@ -3,9 +3,6 @@
 Codes follow ``module.object.action``. Field-level codes start with ``field.``.
 The registry here is the single source of truth: ``app.services.seed`` syncs it
 into ``core.permission`` and the system tags of each company.
-
-Action suffix ``read``/``run``/``use`` = read-only; anything else is a write and is only
-allowed from a device the owner authorized (see Principal.require).
 """
 
 from dataclasses import dataclass
@@ -21,7 +18,7 @@ PERMISSIONS: dict[str, str] = {
     "core.tag.read": "View tags",
     "core.tag.manage": "Create and edit tags",
     "core.tag.assign": "Assign tags to employees",
-    "core.device.manage": "Authorize devices for editing and sign devices out",
+    "core.device.manage": "Approve computers for login and sign them out",
     # master data
     "md.item.read": "View items",
     "md.item.manage": "Create and edit items",
@@ -147,10 +144,3 @@ TAG_TEMPLATES: dict[str, TagTemplate] = {
 for _t in TAG_TEMPLATES.values():
     _unknown = _t.permissions - PERMISSIONS.keys()
     assert not _unknown, f"tag {_t.code} has unknown permissions {_unknown}"
-
-
-READ_ACTIONS = frozenset({"read", "run", "use"})
-
-
-def is_write(code: str) -> bool:
-    return code.rsplit(".", 1)[-1] not in READ_ACTIONS

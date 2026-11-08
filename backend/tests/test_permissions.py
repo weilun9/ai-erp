@@ -37,14 +37,3 @@ def test_seed_is_idempotent(world) -> None:
         assert len(tags) == len(TAG_TEMPLATES)
         owner = next(t for t in tags if t.code == "owner")
         assert {p.code for p in owner.permissions} == set(PERMISSIONS)
-
-
-def test_write_detection() -> None:
-    from app.core.permissions import is_write
-
-    assert not is_write("md.item.read")
-    assert not is_write("report.run")
-    assert not is_write("ai.chat.use")
-    assert is_write("pur.doc.post")
-    assert is_write("core.tag.assign")
-    assert is_write("pos.sale.create")

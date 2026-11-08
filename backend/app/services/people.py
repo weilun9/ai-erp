@@ -299,15 +299,17 @@ def _get_device(db: Session, p: Principal, device_id: uuid.UUID) -> Device:
     return device
 
 
-def set_device_edit(
-    db: Session, p: Principal, device_id: uuid.UUID, can_edit: bool
+def set_device_authorized(
+    db: Session, p: Principal, device_id: uuid.UUID, is_authorized: bool
 ) -> Device:
     p.require("core.device.manage")
     device = _get_device(db, p, device_id)
-    device.can_edit = can_edit
-    device.authorized_by = p.user_id if can_edit else None
-    device.authorized_at = datetime.now(UTC) if can_edit else None
+    device.is_authorized = is_authorized
+    device.authorized_by = p.user_id if is_authorized else None
+    device.authorized_at = datetime.now(UTC) if is_authorized else None
     device.updated_by = p.user_id
+    if not is_authorized:
+        revoke_sessions(db, device_id=device.id)
     db.commit()
     return device
 

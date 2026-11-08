@@ -162,7 +162,7 @@ def set_user_tags(user_id: uuid.UUID, body: TagAssignment, p: CurrentUser, db: D
 class DeviceOut(BaseModel):
     id: uuid.UUID
     name: str
-    can_edit: bool
+    is_authorized: bool
     user_agent: str | None
     last_ip: str | None
     last_seen_at: datetime
@@ -174,7 +174,7 @@ def _device_out(d: Device, p) -> DeviceOut:
     return DeviceOut(
         id=d.id,
         name=d.name,
-        can_edit=d.can_edit,
+        is_authorized=d.is_authorized,
         user_agent=d.user_agent,
         last_ip=d.last_ip,
         last_seen_at=d.last_seen_at,
@@ -195,12 +195,12 @@ def list_devices(p: CurrentUser, db: DB) -> Page[DeviceOut]:
 
 @router.post("/devices/{device_id}/authorize")
 def authorize_device(device_id: uuid.UUID, p: CurrentUser, db: DB) -> DeviceOut:
-    return _device_out(svc.set_device_edit(db, p, device_id, True), p)
+    return _device_out(svc.set_device_authorized(db, p, device_id, True), p)
 
 
 @router.post("/devices/{device_id}/deauthorize")
 def deauthorize_device(device_id: uuid.UUID, p: CurrentUser, db: DB) -> DeviceOut:
-    return _device_out(svc.set_device_edit(db, p, device_id, False), p)
+    return _device_out(svc.set_device_authorized(db, p, device_id, False), p)
 
 
 @router.patch("/devices/{device_id}")

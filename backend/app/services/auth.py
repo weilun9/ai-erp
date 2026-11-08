@@ -11,8 +11,7 @@ from datetime import UTC, datetime, timedelta
 from sqlalchemy import select, update
 from sqlalchemy.orm import Session, selectinload
 
-from app.core.errors import DeviceNotAuthorized, Forbidden
-from app.core.permissions import is_write
+from app.core.errors import Forbidden
 from app.core.security import hash_token, new_opaque_token, verify_password
 from app.models import AppUser, Device, Location, Tag, UserSession
 
@@ -34,7 +33,6 @@ class Principal:
     session_id: uuid.UUID
     device_id: uuid.UUID
     device_name: str
-    device_can_edit: bool
 
     def has(self, code: str) -> bool:
         return code in self.permissions
@@ -43,11 +41,6 @@ class Principal:
         missing = [c for c in codes if c not in self.permissions]
         if missing:
             raise Forbidden("Missing permission", {"required": missing})
-        if not self.device_can_edit and any(is_write(c) for c in codes):
-            raise DeviceNotAuthorized(
-                "This computer is not authorized for editing",
-                {"device_id": str(self.device_id), "device_name": self.device_name},
-            )
 
     def can_see_location(self, location_id: uuid.UUID) -> bool:
         return self.location_ids is None or location_id in self.location_ids
@@ -77,7 +70,7 @@ def resolve_device(
     user_agent: str | None,
     ip: str | None,
 ) -> tuple[Device, str]:
-    """Find the device behind the cookie, or register a new (not yet authorized) one.
+    """Find the device behind the cookie, or register a new one as pending authorization.
 
     Returns (device, raw_token); the raw token is what goes back into the cookie.
     """
@@ -92,7 +85,7 @@ def resolve_device(
             company_id=company_id,
             name=(name or _guess_name(user_agent))[:100],
             token_hash=hash_token(device_token),
-            can_edit=False,
+            is_authorized=False,
         )
         db.add(device)
     elif name:
@@ -108,21 +101,39 @@ def resolve_device(
 def _guess_name(user_agent: str | None) -> str:
     ua = user_agent or ""
     os_name = next(
-        (n for k, n in (("Windows", "Windows"), ("Mac OS", "Mac"), ("Android", "Android"),
-                        ("iPhone", "iPhone"), ("iPad", "iPad"), ("Linux", "Linux")) if k in ua),
+        (
+            n
+            for k, n in (
+                ("Windows", "Windows"),
+                ("Mac OS", "Mac"),
+                ("Android", "Android"),
+                ("iPhone", "iPhone"),
+                ("iPad", "iPad"),
+                ("Linux", "Linux"),
+            )
+            if k in ua
+        ),
         "Unknown",
     )
     browser = next(
-        (n for k, n in (("Edg/", "Edge"), ("Chrome/", "Chrome"), ("Firefox/", "Firefox"),
-                        ("Safari/", "Safari")) if k in ua),
+        (
+            n
+            for k, n in (
+                ("Edg/", "Edge"),
+                ("Chrome/", "Chrome"),
+                ("Firefox/", "Firefox"),
+                ("Safari/", "Safari"),
+            )
+            if k in ua
+        ),
         "Browser",
     )
     return f"{browser} on {os_name}"
 
 
-def create_session(db: Session, user: AppUser, device: Device, remember: bool) -> tuple[
-    UserSession, str
-]:
+def create_session(
+    db: Session, user: AppUser, device: Device, remember: bool
+) -> tuple[UserSession, str]:
     token = new_opaque_token()
     session = UserSession(
         user_id=user.id,
@@ -153,7 +164,10 @@ def find_session_by_token(db: Session, token: str) -> UserSession | None:
 
 
 def revoke_sessions(
-    db: Session, *, session_id: uuid.UUID | None = None, user_id: uuid.UUID | None = None,
+    db: Session,
+    *,
+    session_id: uuid.UUID | None = None,
+    user_id: uuid.UUID | None = None,
     device_id: uuid.UUID | None = None,
 ) -> int:
     stmt = update(UserSession).where(UserSession.revoked_at.is_(None))
@@ -177,6 +191,7 @@ def load_principal(db: Session, user_id: uuid.UUID, session_id: uuid.UUID) -> Pr
         .where(
             UserSession.id == session_id,
             UserSession.user_id == user_id,
+            Device.is_authorized.is_(True),  # de-authorizing a computer locks it out at once
             *_active_session_filter(),
         )
     ).first()
@@ -215,7 +230,6 @@ def load_principal(db: Session, user_id: uuid.UUID, session_id: uuid.UUID) -> Pr
         session_id=session_id,
         device_id=device.id,
         device_name=device.name,
-        device_can_edit=device.can_edit,
     )
 
 

@@ -27,6 +27,4 @@ def healthz_db(db: Annotated[Session, Depends(get_db)]) -> JSONResponse:
         ).scalar_one()
     except SQLAlchemyError:
         return JSONResponse(status_code=503, content={"status": "error", "database": "down"})
-    return JSONResponse(
-        content={"status": "ok", "database": "up", "pgvector": bool(has_vector)}
-    )
+    return JSONResponse(content={"status": "ok", "database": "up", "pgvector": bool(has_vector)})

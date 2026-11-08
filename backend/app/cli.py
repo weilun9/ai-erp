@@ -5,7 +5,7 @@
         --hq-code HQ --hq-name "Head Office" --admin boss
     python -m app.cli set-password boss
     python -m app.cli devices                 # list devices
-    python -m app.cli authorize-device <id>   # first computer the owner edits from
+    python -m app.cli authorize-device <id>   # the owner's first computer
 
 Passwords are read from ERP_ADMIN_PASSWORD or prompted (never a CLI argument,
 so they do not end up in shell history).
@@ -57,7 +57,7 @@ def main(argv: list[str] | None = None) -> None:
     sp.add_argument("username")
 
     sub.add_parser("devices", help="List devices")
-    ad = sub.add_parser("authorize-device", help="Allow a device to edit")
+    ad = sub.add_parser("authorize-device", help="Allow logins from a device")
     ad.add_argument("device_id", type=uuid.UUID)
 
     args = parser.parse_args(argv)
@@ -92,17 +92,17 @@ def main(argv: list[str] | None = None) -> None:
 
         elif args.cmd == "devices":
             for d in db.scalars(select(Device).order_by(Device.last_seen_at.desc())):
-                flag = "EDIT" if d.can_edit else "read"
-                print(f"{d.id}  {flag:4}  {d.last_seen_at:%Y-%m-%d %H:%M}  {d.name}")
+                flag = "OK" if d.is_authorized else "PENDING"
+                print(f"{d.id}  {flag:7}  {d.last_seen_at:%Y-%m-%d %H:%M}  {d.name}")
 
         elif args.cmd == "authorize-device":
             d = db.get(Device, args.device_id)
             if d is None:
                 sys.exit("No such device")
-            d.can_edit = True
+            d.is_authorized = True
             d.authorized_at = datetime.now(UTC)
             db.commit()
-            print(f"Device {d.name} may now edit.")
+            print(f"Device {d.name} is authorized; users can now log in from it.")
 
 
 if __name__ == "__main__":

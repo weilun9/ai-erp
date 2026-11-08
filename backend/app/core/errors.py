@@ -34,7 +34,7 @@ class Forbidden(AppError):
 
 
 class DeviceNotAuthorized(Forbidden):
-    """The user may do this, but not from this computer."""
+    """Correct credentials, but this computer has not been approved by the owner."""
 
     code = "DEVICE_NOT_AUTHORIZED"
 
@@ -75,9 +75,7 @@ def install_error_handlers(app: FastAPI) -> None:
 
     @app.exception_handler(RequestValidationError)
     async def _validation(_: Request, exc: RequestValidationError) -> JSONResponse:
-        fields = [
-            {"loc": list(e["loc"]), "msg": e["msg"], "type": e["type"]} for e in exc.errors()
-        ]
+        fields = [{"loc": list(e["loc"]), "msg": e["msg"], "type": e["type"]} for e in exc.errors()]
         return JSONResponse(
             status_code=400,
             content=_body("VALIDATION_ERROR", "Invalid request", {"fields": fields}),

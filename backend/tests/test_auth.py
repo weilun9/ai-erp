@@ -7,15 +7,50 @@ from sqlalchemy import select
 from app.db.session import SessionLocal
 from app.main import app
 from app.models import Device, UserSession
-from tests.conftest import PASSWORD, login
+from tests.conftest import PASSWORD, approve_device, login
 
 pytestmark = pytest.mark.db
 
 
-def _login(client, username="boss", **extra):
+def _raw_login(client, username="boss", **extra):
     return client.post(
         "/api/v1/auth/login", json={"username": username, "password": PASSWORD, **extra}
     )
+
+
+def _login(client, username="boss", **extra):
+    """Raw login on an approved computer (approves it on first use)."""
+    resp = _raw_login(client, username, **extra)
+    if resp.status_code == 403:
+        approve_device(resp.json()["error"]["details"]["device_id"])
+        resp = _raw_login(client, username, **extra)
+    return resp
+
+
+def test_new_computer_cannot_log_in_until_owner_approves(world, client) -> None:
+    resp = _raw_login(client, device_name="Front desk PC")
+    assert resp.status_code == 403
+    err = resp.json()["error"]
+    assert err["code"] == "DEVICE_NOT_AUTHORIZED"
+    assert err["details"]["device_name"] == "Front desk PC"
+    cookies = resp.headers.get_list("set-cookie")
+    assert any(c.startswith("device_token=") for c in cookies)  # remembered as pending
+    assert not any(c.startswith("session_token=") for c in cookies)  # but not signed in
+    with SessionLocal() as db:
+        assert db.scalar(select(UserSession)) is None
+        assert db.scalar(select(Device)).is_authorized is False
+
+    approve_device(err["details"]["device_id"])
+    again = _raw_login(client)
+    assert again.status_code == 200
+    assert again.json()["device"]["id"] == err["details"]["device_id"]
+
+
+def test_wrong_password_on_new_computer_registers_nothing(world, client) -> None:
+    resp = client.post("/api/v1/auth/login", json={"username": "boss", "password": "nope-nope"})
+    assert resp.status_code == 401
+    with SessionLocal() as db:
+        assert db.scalar(select(Device)) is None
 
 
 def test_login_sets_device_and_session_cookies(world, client) -> None:
@@ -24,7 +59,6 @@ def test_login_sets_device_and_session_cookies(world, client) -> None:
     body = resp.json()
     assert body["expires_in"] == 15 * 60
     assert body["device"]["name"] == "Front desk PC"
-    assert body["device"]["can_edit"] is False  # new computers start read-only
     cookies = resp.headers.get_list("set-cookie")
     for name in ("device_token=", "session_token="):
         c = next(c for c in cookies if c.startswith(name))
@@ -102,7 +136,6 @@ def test_me_for_owner(world, client) -> None:
     assert me["all_locations"] is True
     assert [loc["code"] for loc in me["locations"]] == ["HQ", "S2", "S3"]
     assert "pur.doc.post" in me["permissions"]
-    assert me["device"]["can_edit"] is False
 
 
 def test_me_for_cashier_is_narrow(world, client) -> None:

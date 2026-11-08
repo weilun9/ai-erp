@@ -114,22 +114,27 @@ def client() -> TestClient:
     return TestClient(app)
 
 
+def approve_device(device_id: str) -> None:
+    """What the owner does in the device list (bypassing the API for test setup)."""
+    with SessionLocal() as db:
+        db.get(Device, uuid.UUID(device_id)).is_authorized = True
+        db.commit()
+
+
 def login(
     client: TestClient,
     username: str,
     password: str = PASSWORD,
     *,
-    edit: bool = False,
     remember: bool = True,
 ) -> dict[str, str]:
-    """Log in on this client's "computer". edit=True authorizes the device for writing."""
-    resp = client.post(
-        "/api/v1/auth/login",
-        json={"username": username, "password": password, "remember": remember},
-    )
+    """Log in on this client's "computer", approving it first if it is new."""
+    body = {"username": username, "password": password, "remember": remember}
+    resp = client.post("/api/v1/auth/login", json=body)
+    if resp.status_code == 403:
+        err = resp.json()["error"]
+        assert err["code"] == "DEVICE_NOT_AUTHORIZED", resp.text
+        approve_device(err["details"]["device_id"])
+        resp = client.post("/api/v1/auth/login", json=body)
     assert resp.status_code == 200, resp.text
-    if edit:
-        with SessionLocal() as db:
-            db.get(Device, uuid.UUID(resp.json()["device"]["id"])).can_edit = True
-            db.commit()
     return {"Authorization": f"Bearer {resp.json()['access_token']}"}

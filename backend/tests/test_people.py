@@ -29,7 +29,7 @@ def test_tags_list_shows_builtin_tags_with_colors_and_counts(world, client) -> N
 
 
 def test_owner_assigns_tags_to_employee(world, client) -> None:
-    h = login(client, "boss", edit=True)
+    h = login(client, "boss")
     clerk = _user_id(client, h, "clerk1")
     tags = {_tag_id(client, h, "clerk"), _tag_id(client, h, "cashier")}
     resp = client.put(f"/api/v1/users/{clerk}/tags", json={"tag_ids": list(tags)}, headers=h)
@@ -45,7 +45,7 @@ def test_tag_change_applies_on_next_request(world, client) -> None:
     clerk_h = login(clerk_pc, "clerk1")
     assert "pur.doc.post" in clerk_pc.get("/api/v1/me", headers=clerk_h).json()["permissions"]
 
-    h = login(client, "boss", edit=True)
+    h = login(client, "boss")
     clerk = _user_id(client, h, "clerk1")
     client.put(
         f"/api/v1/users/{clerk}/tags",
@@ -57,7 +57,7 @@ def test_tag_change_applies_on_next_request(world, client) -> None:
 
 
 def test_clerk_cannot_assign_tags(world, client) -> None:
-    h = login(client, "clerk1", edit=True)
+    h = login(client, "clerk1")
     boss_view = login(TestClient(app), "boss")
     me_id = _user_id(TestClient(app), boss_view, "clerk1")
     owner = _tag_id(TestClient(app), boss_view, "owner")
@@ -66,18 +66,8 @@ def test_clerk_cannot_assign_tags(world, client) -> None:
     assert resp.json()["error"]["code"] == "FORBIDDEN"
 
 
-def test_assigning_tags_needs_authorized_computer(world, client) -> None:
-    h = login(client, "boss")  # not authorized
-    clerk = _user_id(client, h, "clerk1")
-    resp = client.put(
-        f"/api/v1/users/{clerk}/tags", json={"tag_ids": [_tag_id(client, h, "clerk")]}, headers=h
-    )
-    assert resp.status_code == 403
-    assert resp.json()["error"]["code"] == "DEVICE_NOT_AUTHORIZED"
-
-
 def test_last_owner_cannot_be_removed(world, client) -> None:
-    h = login(client, "boss", edit=True)
+    h = login(client, "boss")
     me = _user_id(client, h, "boss")
     resp = client.put(
         f"/api/v1/users/{me}/tags", json={"tag_ids": [_tag_id(client, h, "clerk")]}, headers=h
@@ -86,7 +76,7 @@ def test_last_owner_cannot_be_removed(world, client) -> None:
 
 
 def test_owner_creates_custom_tag_and_employee(world, client) -> None:
-    h = login(client, "boss", edit=True)
+    h = login(client, "boss")
     s2 = world.s2_id
     tag = client.post(
         "/api/v1/tags",
@@ -119,7 +109,7 @@ def test_owner_creates_custom_tag_and_employee(world, client) -> None:
 
 
 def test_builtin_tag_can_be_renamed_but_permissions_are_fixed(world, client) -> None:
-    h = login(client, "boss", edit=True)
+    h = login(client, "boss")
     clerk = _tag_id(client, h, "clerk")
     ok = client.patch(f"/api/v1/tags/{clerk}", json={"name": "文员", "color": "#000000"}, headers=h)
     assert ok.status_code == 200 and ok.json()["name"] == "文员"
@@ -128,7 +118,7 @@ def test_builtin_tag_can_be_renamed_but_permissions_are_fixed(world, client) -> 
 
 
 def test_unknown_permission_in_custom_tag_rejected(world, client) -> None:
-    h = login(client, "boss", edit=True)
+    h = login(client, "boss")
     resp = client.post(
         "/api/v1/tags",
         json={"code": "x_tag", "name": "X", "color": "#ffffff", "permissions": ["nope.x.y"]},
@@ -140,7 +130,7 @@ def test_unknown_permission_in_custom_tag_rejected(world, client) -> None:
 def test_deactivating_employee_signs_them_out(world, client) -> None:
     cashier_pc = TestClient(app)
     ch = login(cashier_pc, "cashier1")
-    h = login(client, "boss", edit=True)
+    h = login(client, "boss")
     uid = _user_id(client, h, "cashier1")
     assert client.patch(f"/api/v1/users/{uid}", json={"is_active": False}, headers=h).is_success
     assert cashier_pc.get("/api/v1/me", headers=ch).status_code == 401
@@ -148,8 +138,9 @@ def test_deactivating_employee_signs_them_out(world, client) -> None:
 
 
 def test_users_list_is_company_scoped(world, client) -> None:
-    names = {u["username"] for u in client.get(
-        "/api/v1/users", headers=login(client, "boss")
-    ).json()["items"]}
+    names = {
+        u["username"]
+        for u in client.get("/api/v1/users", headers=login(client, "boss")).json()["items"]
+    }
     assert "boss2" not in names
     assert {"boss", "clerk1", "cashier1", "acct"} <= names

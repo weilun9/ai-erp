@@ -2,6 +2,9 @@
 
 Two HttpOnly cookies, both scoped to /api/v1/auth so they are never sent elsewhere:
 - device_token: identifies this computer; kept across logouts.
+  Only computers the owner authorized may sign in. A correct password on a new computer
+  registers it as pending and returns 403 DEVICE_NOT_AUTHORIZED; once the owner
+  authorizes it, the same login succeeds.
 - session_token: the signed-in session; with remember=true it never expires server-side
   and the cookie is renewed on every refresh, so the user stays signed in.
 The short-lived access JWT (Authorization: Bearer) is what other endpoints accept.
@@ -12,11 +15,12 @@ from datetime import UTC, datetime
 from typing import Annotated
 
 from fastapi import APIRouter, Cookie, Request, Response
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
 from app.api.deps import DB
 from app.core.config import get_settings
-from app.core.errors import Unauthenticated
+from app.core.errors import DeviceNotAuthorized, Unauthenticated
 from app.core.security import create_access_token
 from app.models import Device
 from app.services.auth import (
@@ -47,7 +51,6 @@ class LoginIn(BaseModel):
 class DeviceOut(BaseModel):
     id: uuid.UUID
     name: str
-    can_edit: bool
 
 
 class TokenOut(BaseModel):
@@ -74,18 +77,18 @@ def _token_out(user_id, session_id, device: Device) -> TokenOut:
     return TokenOut(
         access_token=access,
         expires_in=ttl,
-        device=DeviceOut(id=device.id, name=device.name, can_edit=device.can_edit),
+        device=DeviceOut(id=device.id, name=device.name),
     )
 
 
-@router.post("/login")
+@router.post("/login", response_model=TokenOut)
 def login(
     body: LoginIn,
     request: Request,
     response: Response,
     db: DB,
     device_token: Annotated[str | None, Cookie(alias=DEVICE_COOKIE)] = None,
-) -> TokenOut:
+) -> TokenOut | JSONResponse:
     user = authenticate(db, body.username, body.password)
     if user is None:
         # Same message for unknown user, wrong password and disabled account.
@@ -98,6 +101,18 @@ def login(
         user_agent=request.headers.get("user-agent"),
         ip=request.client.host if request.client else None,
     )
+    if not device.is_authorized:
+        db.commit()  # keep the pending device so the owner can find and approve it
+        err = DeviceNotAuthorized(
+            "This computer is not authorized. Ask the owner to approve it, then log in again.",
+            {"device_id": str(device.id), "device_name": device.name},
+        )
+        resp = JSONResponse(
+            status_code=err.status_code,
+            content={"error": {"code": err.code, "message": err.message, "details": err.details}},
+        )
+        _set_cookie(resp, DEVICE_COOKIE, raw_device, persistent=True)
+        return resp
     session, raw_session = create_session(db, user, device, body.remember)
     db.commit()
     _set_cookie(response, DEVICE_COOKIE, raw_device, persistent=True)
@@ -137,8 +152,7 @@ def logout(
     if session is not None:
         revoke_sessions(db, session_id=session.id)
         db.commit()
-    # The device cookie stays: the computer is still remembered (and still authorized).
+    # The device cookie stays: the computer is still remembered and still authorized.
     response.delete_cookie(SESSION_COOKIE, path=COOKIE_PATH)
     response.status_code = 204
     return response
-

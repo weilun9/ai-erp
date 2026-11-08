@@ -56,7 +56,7 @@ def test_cashier_cannot_create_location(world, client) -> None:
 
 
 def test_owner_creates_location_and_duplicate_is_conflict(world, client) -> None:
-    headers = login(client, "boss", edit=True)
+    headers = login(client, "boss")
     body = {"code": "ECOM", "name": "E-commerce stock", "type": "ECOM"}
     resp = client.post("/api/v1/locations", json=body, headers=headers)
     assert resp.status_code == 201
@@ -75,13 +75,3 @@ def test_location_code_is_validated(world, client) -> None:
         headers=login(client, "boss"),
     )
     assert resp.status_code == 400
-
-
-def test_owner_on_unauthorized_computer_cannot_create(world, client) -> None:
-    resp = client.post(
-        "/api/v1/locations",
-        json={"code": "S9", "name": "New"},
-        headers=login(client, "boss"),
-    )
-    assert resp.status_code == 403
-    assert resp.json()["error"]["code"] == "DEVICE_NOT_AUTHORIZED"

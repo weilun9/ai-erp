@@ -27,7 +27,6 @@ class TagBrief(BaseModel):
 class DeviceBrief(BaseModel):
     id: uuid.UUID
     name: str
-    can_edit: bool
 
 
 class MeOut(BaseModel):
@@ -46,9 +45,7 @@ class MeOut(BaseModel):
 @router.get("/me")
 def me(p: CurrentUser, db: DB) -> MeOut:
     tags = db.scalars(
-        select(Tag)
-        .where(Tag.company_id == p.company_id, Tag.code.in_(p.tags))
-        .order_by(Tag.code)
+        select(Tag).where(Tag.company_id == p.company_id, Tag.code.in_(p.tags)).order_by(Tag.code)
     )
     return MeOut(
         id=p.user_id,
@@ -63,5 +60,5 @@ def me(p: CurrentUser, db: DB) -> MeOut:
             LocationBrief(id=loc.id, code=loc.code, name=loc.name, type=loc.type)
             for loc in visible_locations(db, p)
         ],
-        device=DeviceBrief(id=p.device_id, name=p.device_name, can_edit=p.device_can_edit),
+        device=DeviceBrief(id=p.device_id, name=p.device_name),
     )

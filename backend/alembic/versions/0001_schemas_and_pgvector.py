@@ -4,6 +4,7 @@ Revision ID: 0001
 Revises:
 Create Date: 2026-11-08
 """
+
 from collections.abc import Sequence
 
 from alembic import op
