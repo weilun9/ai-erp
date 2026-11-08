@@ -14,6 +14,7 @@ from app.models.core import (  # noqa: F401
     user_tag,
 )
 from app.models.docs import DocSequence, PostingJob  # noqa: F401
+from app.models.einvoice import Einvoice  # noqa: F401
 from app.models.fin import (  # noqa: F401
     CustomerReceipt,
     CustomerReceiptLine,

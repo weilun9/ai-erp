@@ -35,6 +35,13 @@ class Settings(BaseSettings):
     vision_model: str = ""
     vision_timeout_seconds: float = 120
 
+    # LHDN MyInvois (credentials from the MyInvois portal: ERP system registration)
+    myinvois_env: str = "sandbox"  # sandbox / production
+    myinvois_client_id: str = ""
+    myinvois_client_secret: str = ""
+    myinvois_onbehalfof: str = ""  # TIN of the taxpayer when we act as intermediary
+    myinvois_timeout_seconds: float = 30
+
     @property
     def inbox_path(self) -> Path:
         p = Path(self.inbox_dir)

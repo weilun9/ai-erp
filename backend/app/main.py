@@ -2,6 +2,8 @@ from fastapi import APIRouter, FastAPI
 
 from app.api.v1 import (
     auth,
+    company,
+    einvoice,
     finance,
     health,
     inbox,
@@ -38,11 +40,13 @@ def create_app() -> FastAPI:
     v1 = APIRouter(prefix="/api/v1")
     v1.include_router(auth.router)
     v1.include_router(me.router)
+    v1.include_router(company.router)
     v1.include_router(locations.router)
     v1.include_router(people.router)
     v1.include_router(masterdata.router)
     v1.include_router(purchasing.router)
     v1.include_router(sales.router)
+    v1.include_router(einvoice.router)
     v1.include_router(finance.router)
     v1.include_router(finance.issues_router)
     v1.include_router(inbox.router)

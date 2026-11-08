@@ -31,6 +31,7 @@ from app.models import (
     CustomerCnLine,
     DeliveryOrder,
     DeliveryOrderLine,
+    Einvoice,
     Item,
     ItemUom,
     Location,
@@ -42,6 +43,7 @@ from app.models import (
     StockBalance,
     TaxCode,
 )
+from app.models.einvoice import ACTIVE as EINVOICE_ACTIVE
 from app.services import audit, stock
 from app.services import knockoff as ko
 from app.services.auth import Principal
@@ -692,6 +694,18 @@ def void_doc(db: Session, p: Principal, kind: str, doc_id: uuid.UUID, version: i
     blocking = _dependants(db, k, doc)
     if blocking:
         raise DocState("Void the documents made from this one first", {"documents": blocking})
+    if k.key in ("sales-invoice", "customer-cn"):
+        sent = db.scalar(
+            select(Einvoice.status).where(
+                Einvoice.doc_id == doc.id, Einvoice.status.in_(EINVOICE_ACTIVE)
+            )
+        )
+        if sent:
+            raise DocState(
+                "This document has an e-invoice: cancel it first (within 72 hours of "
+                "validation), or issue a credit note",
+                {"einvoice_status": sent},
+            )
     was = doc.status
     if was == "POSTED" and k.direction != 0:
         ko.release_for_void(db, [doc.id], doc.id, p.user_id)

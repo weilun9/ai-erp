@@ -38,6 +38,7 @@ PERMISSIONS: dict[str, str] = {
     "sal.doc.create": "Create and edit sales documents",
     "sal.doc.post": "Post sales documents",
     "sal.doc.void": "Void posted sales documents",
+    "sal.einvoice.submit": "Submit and cancel e-invoices with LHDN MyInvois",
     # receipts, payments, knock-off
     "fin.doc.read": "View receipts, payments, knock-offs and statements",
     "fin.doc.create": "Create receipts and payments; knock off documents",
