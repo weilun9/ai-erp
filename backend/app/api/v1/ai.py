@@ -38,6 +38,7 @@ class MessageOut(BaseModel):
 
 class ActionOut(BaseModel):
     id: uuid.UUID
+    conversation_id: uuid.UUID | None
     tool: str
     status: str
     summary: dict[str, Any]
