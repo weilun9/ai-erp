@@ -292,3 +292,15 @@ def test_returns_in_pieces_never_refund_more_tax_than_charged(till, client) -> N
         r = _return(till, sale.json()["receipt_no"], [{"line_no": 1, "qty": "1"}]).json()
         back.append(r["tax_total"])
     assert back == ["-0.0100", "0.0000"]  # 0.005 rounds up once, then exactly what is left
+
+
+def test_quote_prices_like_the_sale_and_saves_nothing(till, client) -> None:
+    body = {"lines": [kopi("2"), kopi("1", unit_price="3.00")]}
+    q = till["pc"].post(f"{POS}/quote", json=body, headers=till["ch"]).json()
+    assert [(x["code"], x["line_total"]) for x in q["lines"]] == [
+        ("KOPI", "7.33"),
+        ("KOPI", "3.30"),
+    ]
+    assert (q["total"], q["cash_total"]) == ("10.63", "10.65")
+    assert q["needs_supervisor"] == ["line 2: price 3.00 instead of 3.3300"]
+    assert _balance(client, till, till["kopi"]) == ("100.0000", "2.0000")  # nothing sold

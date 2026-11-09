@@ -347,20 +347,18 @@ def _settle(
     return q2(rounding), q2(other + cash_in), q2(change), rows
 
 
-def sell(db: Session, p: Principal, body: dict[str, Any]) -> tuple[PosSale, bool]:
-    """-> (sale, replayed). replayed = this client_uuid was already recorded."""
-    p.require("pos.sale.create")
-    if (old := _claim(db, p, body["client_uuid"])) is not None:
-        db.commit()  # release the lock
-        return get_sale(db, p, sale_id=old.id), True
-    shift = _my_open_shift(db, p)
-    if not body.get("lines"):
+def _price_lines(
+    db: Session, p: Principal, raw: list[dict[str, Any]]
+) -> tuple[list[PosLine], list[str], list[Item]]:
+    """Price the scanned lines exactly as a sale will: (lines, override reasons, items)."""
+    if not raw:
         raise BadRequest("A sale needs at least one line")
     taxes = {t.id: t for t in db.scalars(select(TaxCode).where(TaxCode.company_id == p.company_id))}
 
-    lines, needs = [], []
-    for n, ln in enumerate(body["lines"], start=1):
+    lines, needs, items = [], [], []
+    for n, ln in enumerate(raw, start=1):
         item, uom_code, barcode = _resolve(db, p, n, ln)
+        items.append(item)
         uom = next((u for u in item.uoms if u.uom == uom_code), None)
         if uom is None:
             raise BadRequest(
@@ -407,6 +405,17 @@ def sell(db: Session, p: Principal, body: dict[str, Any]) -> tuple[PosSale, bool
                 line_total=subtotal + line_tax,
             )
         )
+    return lines, needs, items
+
+
+def sell(db: Session, p: Principal, body: dict[str, Any]) -> tuple[PosSale, bool]:
+    """-> (sale, replayed). replayed = this client_uuid was already recorded."""
+    p.require("pos.sale.create")
+    if (old := _claim(db, p, body["client_uuid"])) is not None:
+        db.commit()  # release the lock
+        return get_sale(db, p, sale_id=old.id), True
+    shift = _my_open_shift(db, p)
+    lines, needs, _ = _price_lines(db, p, body.get("lines") or [])
     approval = _supervisor(db, p, body.get("supervisor"), needs)
 
     subtotal = sum((x.line_subtotal for x in lines), ZERO)
@@ -440,6 +449,41 @@ def sell(db: Session, p: Principal, body: dict[str, Any]) -> tuple[PosSale, bool
         [Move(x.item_id, shift.location_id, -x.base_qty, None) for x in lines],
         approval,
     )
+
+
+def quote(db: Session, p: Principal, raw: list[dict[str, Any]]) -> dict[str, Any]:
+    """What the till shows while scanning: the same pricing as the sale, nothing saved."""
+    p.require("pos.sale.create")
+    lines, needs, items = _price_lines(db, p, raw)
+    subtotal = sum((x.line_subtotal for x in lines), ZERO)
+    tax_total = sum((x.line_tax for x in lines), ZERO)
+    total = subtotal + tax_total
+    return {
+        "lines": [
+            {
+                "line_no": x.line_no,
+                "item_id": item.id,
+                "code": item.code,
+                "name": item.name,
+                "barcode": x.barcode,
+                "uom": x.uom,
+                "qty": x.qty,
+                "unit_price": x.unit_price,
+                "list_price": x.list_price,
+                "discount_pct": x.discount_pct,
+                "tax_rate": x.tax_rate,
+                "line_subtotal": x.line_subtotal,
+                "line_tax": x.line_tax,
+                "line_total": x.line_total,
+            }
+            for x, item in zip(lines, items, strict=True)
+        ],
+        "subtotal": q2(subtotal),
+        "tax_total": q2(tax_total),
+        "total": q2(total),
+        "cash_total": q2(round05(total)),  # if all of it is paid in cash
+        "needs_supervisor": needs,
+    }
 
 
 def _book(db, p, sale: PosSale, moves: list[Move], approval: Approval) -> tuple[PosSale, bool]:

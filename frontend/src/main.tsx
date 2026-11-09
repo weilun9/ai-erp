@@ -4,6 +4,7 @@ import { BrowserRouter } from "react-router-dom";
 import { App } from "./App";
 import { SessionProvider } from "./session";
 import "./styles.css";
+import "./till.css";
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>

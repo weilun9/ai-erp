@@ -11,6 +11,7 @@ export function TopBar() {
   const links = (
     <>
       <NavLink to="/" end>{t("home")}</NavLink>
+      {can("pos.sale.create") && <NavLink to="/till">{t("till")}</NavLink>}
       {can("ai.chat.use") && <NavLink to="/butler">{t("butler")}</NavLink>}
       {can("md.item.read") && <NavLink to="/items">{t("items")}</NavLink>}
       {can("sal.doc.read") && <NavLink to="/sales">{t("sales")}</NavLink>}

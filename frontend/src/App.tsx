@@ -7,6 +7,7 @@ import { Home } from "./pages/Home";
 import { Butler } from "./pages/Butler";
 import { Items } from "./pages/Items";
 import { Sales } from "./pages/Sales";
+import { Till } from "./pages/Till";
 
 export function App() {
   const { me, ready, t } = useSession();
@@ -36,6 +37,7 @@ export function App() {
           <Route path="/butler" element={<Butler />} />
           <Route path="/items" element={<Items />} />
           <Route path="/sales" element={<Sales />} />
+          <Route path="/till" element={<Till />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </main>

@@ -20,7 +20,12 @@ export class ApiError extends Error {
 async function parse(res: Response): Promise<unknown> {
   if (res.status === 204) return null;
   const text = await res.text();
-  const body = text ? JSON.parse(text) : null;
+  let body = null;
+  try {
+    body = text ? JSON.parse(text) : null;
+  } catch {
+    // not JSON (e.g. a proxy's 502 page): the status code still tells what happened
+  }
   if (!res.ok) {
     const e = body?.error ?? {};
     throw new ApiError(res.status, e.code ?? "HTTP_" + res.status, e.message ?? res.statusText,

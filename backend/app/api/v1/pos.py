@@ -7,9 +7,11 @@ from typing import Any, Literal
 
 from fastapi import APIRouter, Response
 from pydantic import BaseModel, Field
+from sqlalchemy import select
 
 from app.api.deps import DB, CurrentUser
 from app.api.redact import sensitive, shape
+from app.models import Item
 from app.services import pos as svc
 from app.services import pos_consolidation as cons
 
@@ -90,6 +92,8 @@ class ReturnIn(BaseModel):
 class LineOut(BaseModel):
     line_no: int
     item_id: uuid.UUID
+    item_code: str
+    item_name: str  # for the receipt
     barcode: str | None
     uom: str
     qty: Decimal
@@ -138,10 +142,21 @@ def _shift(s) -> ShiftOut:
     return ShiftOut.model_validate(s, from_attributes=True)
 
 
-def _sale(s, p, replayed: bool = False) -> SaleOut:
+def _sale(s, p, db, replayed: bool = False) -> SaleOut:
     data = {k: getattr(s, k) for k in SaleOut.model_fields if hasattr(s, k)}
+    names = {
+        i.id: (i.code, i.name)
+        for i in db.scalars(select(Item).where(Item.id.in_({x.item_id for x in s.lines})))
+    }
     data["lines"] = [
-        shape(LineOut, {k: getattr(x, k) for k in LineOut.model_fields}, p) for x in s.lines
+        shape(
+            LineOut,
+            {k: getattr(x, k) for k in LineOut.model_fields if hasattr(x, k)},
+            p,
+            item_code=names[x.item_id][0],
+            item_name=names[x.item_id][1],
+        )
+        for x in s.lines
     ]
     data["payments"] = [PaymentOut.model_validate(x, from_attributes=True) for x in s.payments]
     data["replayed"] = replayed
@@ -181,12 +196,22 @@ def close_shift(shift_id: uuid.UUID, body: ShiftCloseIn, p: CurrentUser, db: DB)
     return _shift(svc.close_shift(db, p, shift_id, body.counted_cash, body.note))
 
 
+class QuoteIn(BaseModel):
+    lines: list[SaleLineIn] = Field(min_length=1, max_length=300)
+
+
+@router.post("/quote")
+def quote(body: QuoteIn, p: CurrentUser, db: DB) -> dict[str, Any]:
+    """Price the basket as the sale will (tax, 5-sen cash total); nothing is saved."""
+    return svc.quote(db, p, _plain(body)["lines"])
+
+
 @router.post("/sales", status_code=201, **EXCLUDE_UNSET)
 def sell(body: SaleIn, p: CurrentUser, db: DB, response: Response) -> SaleOut:
     sale, replayed = svc.sell(db, p, _plain(body))
     if replayed:
         response.status_code = 200
-    return _sale(sale, p, replayed)
+    return _sale(sale, p, db, replayed)
 
 
 @router.post("/returns", status_code=201, **EXCLUDE_UNSET)
@@ -194,12 +219,12 @@ def refund(body: ReturnIn, p: CurrentUser, db: DB, response: Response) -> SaleOu
     sale, replayed = svc.refund(db, p, _plain(body))
     if replayed:
         response.status_code = 200
-    return _sale(sale, p, replayed)
+    return _sale(sale, p, db, replayed)
 
 
 @router.get("/sales/{receipt_no}", **EXCLUDE_UNSET)
 def get_sale(receipt_no: str, p: CurrentUser, db: DB) -> SaleOut:
-    return _sale(svc.get_sale(db, p, receipt_no=receipt_no), p)
+    return _sale(svc.get_sale(db, p, receipt_no=receipt_no), p, db)
 
 
 @router.get("/tax-summary")
