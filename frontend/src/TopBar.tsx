@@ -17,6 +17,7 @@ export function TopBar() {
       {can("ai.chat.use") && <NavLink to="/butler">{t("butler")}</NavLink>}
       {can("md.item.read") && <NavLink to="/items">{t("items")}</NavLink>}
       {can("sal.doc.read") && <NavLink to="/sales">{t("sales")}</NavLink>}
+      {can("pur.doc.read") && <NavLink to="/purchases">{t("purchases")}</NavLink>}
     </>
   );
 

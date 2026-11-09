@@ -6,7 +6,8 @@ import { Login } from "./pages/Login";
 import { Home } from "./pages/Home";
 import { Butler } from "./pages/Butler";
 import { Items } from "./pages/Items";
-import { Sales } from "./pages/Sales";
+import { DocList } from "./pages/DocList";
+import { DocForm } from "./pages/DocForm";
 import { Till } from "./pages/Till";
 import { useCallback, useState } from "react";
 import { useOutboxSync } from "./pos/sync";
@@ -45,7 +46,9 @@ export function App() {
           <Route path="/" element={<Home />} />
           <Route path="/butler" element={<Butler />} />
           <Route path="/items" element={<Items />} />
-          <Route path="/sales" element={<Sales />} />
+          <Route path="/sales" element={<DocList area="sales" />} />
+          <Route path="/purchases" element={<DocList area="purchase" />} />
+          <Route path="/docs/:kind/:id" element={<DocForm />} />
           <Route path="/till" element={<Till />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
