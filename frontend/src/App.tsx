@@ -48,6 +48,7 @@ export function App() {
           <Route path="/items" element={<Items />} />
           <Route path="/sales" element={<DocList area="sales" />} />
           <Route path="/purchases" element={<DocList area="purchase" />} />
+          <Route path="/finance" element={<DocList area="finance" />} />
           <Route path="/docs/:kind/:id" element={<DocForm />} />
           <Route path="/till" element={<Till />} />
           <Route path="*" element={<Navigate to="/" replace />} />

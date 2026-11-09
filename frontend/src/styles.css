@@ -279,9 +279,9 @@ select.input { appearance: auto; }
 .input:disabled { background: rgba(255, 255, 255, 0.45); color: var(--ink-soft); }
 .input.sm { padding: 7px 10px; border-radius: 12px; min-width: 64px; }
 .input.num { text-align: right; width: 112px; }
-.table.lines td { padding: 8px 8px; vertical-align: middle; }
-.table.lines th { padding: 8px; white-space: nowrap; }
-.table.lines td:nth-child(2) { min-width: 140px; }
+.table.doc-lines td { padding: 8px 8px; vertical-align: middle; }
+.table.doc-lines th { padding: 8px; white-space: nowrap; }
+.table.doc-lines td:nth-child(2) { min-width: 140px; }
 .picker { position: relative; }
 .picker .input { width: 100%; }
 .picker-list {
@@ -300,3 +300,6 @@ select.input { appearance: auto; }
 .btn.danger-fill { background: var(--red); }
 .warn-box { background: var(--amber-soft); color: #7a4a0a; padding: 10px 14px; border-radius: 14px; font-size: 14px; }
 .warn-box ul { margin: 6px 0 0; padding-left: 18px; }
+.input.num-wide { text-align: right; }
+.open-docs summary { cursor: pointer; color: var(--ink-soft); font-size: 14px; padding: 6px 0; }
+.open-docs .list { margin-top: 8px; }

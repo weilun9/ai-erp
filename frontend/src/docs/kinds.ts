@@ -1,18 +1,20 @@
 // The six document kinds the entry form handles. Sales and purchase documents share one
 // lifecycle (DRAFT -> SAVED -> POSTED -> VOIDED) and one line shape; what differs is listed here.
 
-export type Area = "sales" | "purchase";
+export type Area = "sales" | "purchase" | "finance";
 
 export const SALES_KINDS = ["sales-invoice", "delivery-order", "quotation", "customer-cn"] as const;
 export const PURCHASE_KINDS = ["grn", "supplier-cn"] as const;
-export type Kind = (typeof SALES_KINDS)[number] | (typeof PURCHASE_KINDS)[number];
+export const FINANCE_KINDS = ["receipt", "supplier-payment"] as const;
+export type Kind =
+  | (typeof SALES_KINDS)[number] | (typeof PURCHASE_KINDS)[number] | (typeof FINANCE_KINDS)[number];
 
 export interface KindDef {
   kind: Kind;
   area: Area;
   api: string;                      // collection path
   party: "customer" | "supplier";
-  perm: "sal" | "pur";              // permission prefix: <perm>.doc.create / post / void
+  perm: "sal" | "pur" | "fin";              // permission prefix: <perm>.doc.create / post / void
   posts: boolean;                   // quotations are converted, never posted
   priceRequired: boolean;           // a GRN line must carry the supplier's price
   priceField: "selling_price" | "purchase_price";
@@ -33,7 +35,14 @@ const purchase = (kind: Kind, extra: Partial<KindDef> = {}): KindDef => ({
   refField: "supplier_ref_no", converts: [], ...extra,
 });
 
+// receipts and payments: same lifecycle, own screen (PayForm); line fields are unused
+const finance = (kind: Kind, party: "customer" | "supplier"): KindDef => ({
+  ...sales(kind), area: "finance", api: `/finance/${kind}`, party, perm: "fin",
+});
+
 export const KINDS: Record<Kind, KindDef> = {
+  receipt: finance("receipt", "customer"),
+  "supplier-payment": finance("supplier-payment", "supplier"),
   quotation: sales("quotation", {
     posts: false,
     converts: [{ target: "delivery-order", from: "SAVED" }, { target: "sales-invoice", from: "SAVED" }],

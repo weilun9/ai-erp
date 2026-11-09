@@ -1,11 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { ApiError, api, money, qty as fmtQty } from "../api";
+import { api, money, qty as fmtQty } from "../api";
 import type { Page } from "../api";
 import { useSession } from "../session";
 import { Picker } from "../docs/Picker";
 import { KINDS, STATUS_COLOR, isKind } from "../docs/kinds";
 import type { Kind, KindDef } from "../docs/kinds";
+import { errorText, isNum, round2, today, warnText } from "../docs/shared";
+import type { Warning } from "../docs/shared";
+import { PayForm } from "./PayForm";
 
 // One entry screen for quotations, DOs, sales invoices, customer CNs, GRNs and supplier CNs.
 // The server owns every number that matters (price lookup, tax, totals, credit and cost
@@ -18,7 +21,6 @@ interface Item {
 }
 interface TaxCode { id: string; code: string; name: string; rate: string; is_active: boolean }
 interface Party { id: string; code: string; name: string }
-interface Warning { code: string; message: string; [k: string]: unknown }
 interface LineOut {
   id: string; item_id: string; uom: string; qty: string; unit_price?: string; price_source: string;
   discount_pct: string; tax_code_id: string | null; line_total?: string; remark: string | null;
@@ -46,15 +48,7 @@ interface Head {
   ref_invoice_no: string;
 }
 
-const today = () => new Date().toLocaleDateString("en-CA");  // YYYY-MM-DD, local
-const round2 = (x: number) => Math.round(x * 100) / 100;
-const isNum = (s: string) => s.trim() !== "" && Number.isFinite(Number(s));
 let nextKey = 1;
-// warnings the server sends on save, in the user's language (unknown codes: server text)
-const WARN_KEYS: Record<string, "warnCREDIT_LIMIT" | "warnBELOW_COST" | "warnSUPPLIER_REF_FORMAT" | "warnSUPPLIER_REF_MISSING"> = {
-  CREDIT_LIMIT: "warnCREDIT_LIMIT", BELOW_COST: "warnBELOW_COST",
-  SUPPLIER_REF_FORMAT: "warnSUPPLIER_REF_FORMAT", SUPPLIER_REF_MISSING: "warnSUPPLIER_REF_MISSING",
-};
 
 const emptyHead = (): Head => ({
   doc_date: today(), party: null, location_id: "", ref_no: "", remark: "", valid_until: "",
@@ -72,20 +66,13 @@ function newRow(def: KindDef, item: Item, uom?: string): Row {
   };
 }
 
-function errorText(e: unknown): string {
-  if (e instanceof ApiError) {
-    const extra = Object.entries(e.details)
-      .map(([k, v]) => `${k}: ${Array.isArray(v) ? v.join(", ") : typeof v === "object" ? JSON.stringify(v) : v}`)
-      .join(" · ");
-    return extra ? `${e.message} (${extra})` : e.message;
-  }
-  return e instanceof Error ? e.message : String(e);
-}
-
 export function DocForm() {
   const { kind: kindParam, id } = useParams();
   if (!isKind(kindParam)) return <section className="card glass">{"Unknown document type"}</section>;
   // keyed by kind only: saving a new document swaps "new" for its id without a remount
+  if (KINDS[kindParam].area === "finance") {
+    return <PayForm key={kindParam} def={KINDS[kindParam]} id={id ?? "new"} />;
+  }
   return <Form key={kindParam} def={KINDS[kindParam]} id={id ?? "new"} />;
 }
 
@@ -450,7 +437,7 @@ function Form({ def, id }: { def: KindDef; id: string }) {
       <section className="card glass">
         <h3>{t("lines")}</h3>
         <div className="scroll-x">
-          <table className="table lines">
+          <table className="table doc-lines">
             <thead>
               <tr>
                 <th>#</th><th>{t("item")}</th><th>{t("uom")}</th>
@@ -593,7 +580,7 @@ function Form({ def, id }: { def: KindDef; id: string }) {
         {warnings.length > 0 && (
           <div className="warn-box">
             <b>{t("warnings")}</b>
-            <ul>{warnings.map((w, i) => <li key={i}>{WARN_KEYS[w.code] ? t(WARN_KEYS[w.code]) : w.message}</li>)}</ul>
+            <ul>{warnings.map((w, i) => <li key={i}>{warnText(t, w)}</li>)}</ul>
           </div>
         )}
       </section>

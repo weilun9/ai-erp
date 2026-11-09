@@ -18,6 +18,7 @@ export function TopBar() {
       {can("md.item.read") && <NavLink to="/items">{t("items")}</NavLink>}
       {can("sal.doc.read") && <NavLink to="/sales">{t("sales")}</NavLink>}
       {can("pur.doc.read") && <NavLink to="/purchases">{t("purchases")}</NavLink>}
+      {can("fin.doc.read") && <NavLink to="/finance">{t("finance")}</NavLink>}
     </>
   );
 
