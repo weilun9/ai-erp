@@ -1,9 +1,11 @@
 import { useState } from "react";
 import { NavLink, useNavigate } from "react-router-dom";
 import { useSession } from "./session";
+import { useWaiting } from "./pos/sync";
 
 export function TopBar() {
-  const { me, t, lang, setLang, can, logout } = useSession();
+  const { me, t, lang, setLang, can, logout, offline } = useSession();
+  const waiting = useWaiting();
   const nav = useNavigate();
   const [q, setQ] = useState("");
   const initials = (me?.display_name ?? "?").slice(0, 1).toUpperCase();
@@ -41,6 +43,8 @@ export function TopBar() {
                aria-label={t("search")} />
       </form>
       <div className="user glass pill">
+        {offline && <span className="badge red" title={t("offlineHint")}>{t("offline")}</span>}
+        {waiting > 0 && <span className="badge amber">{waiting} {t("waitingUpload")}</span>}
         <span>{me?.display_name}</span>
         <button className="chip-btn" onClick={logout}>{t("logout")}</button>
         <div className="avatar" aria-hidden>{initials}</div>

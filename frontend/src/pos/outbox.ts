@@ -30,7 +30,9 @@ function write(items: Pending[]) {
 
 /** No connection, or a proxy in front of the server saying it is unreachable. */
 export const isOffline = (e: unknown) =>
-  e instanceof TypeError || (e instanceof ApiError && [502, 503, 504].includes(e.status));
+  e instanceof TypeError ||
+  (e instanceof DOMException && (e.name === "TimeoutError" || e.name === "AbortError")) ||
+  (e instanceof ApiError && [502, 503, 504].includes(e.status));
 
 export const outbox = {
   list: read,
@@ -45,7 +47,7 @@ export const outbox = {
     const items = read();
     for (let i = 0; i < items.length; i++) {
       try {
-        await api(items[i].path, { method: "POST", body: items[i].body });
+        await api(items[i].path, { method: "POST", body: items[i].body, timeoutMs: 8000 });
         sent++;
       } catch (e) {
         if (isOffline(e)) {  // still offline: keep this and the rest

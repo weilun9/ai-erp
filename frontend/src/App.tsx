@@ -8,9 +8,14 @@ import { Butler } from "./pages/Butler";
 import { Items } from "./pages/Items";
 import { Sales } from "./pages/Sales";
 import { Till } from "./pages/Till";
+import { useCallback, useState } from "react";
+import { useOutboxSync } from "./pos/sync";
 
 export function App() {
   const { me, ready, t } = useSession();
+  const [refused, setRefused] = useState<string | null>(null);
+  const onRefused = useCallback((m: string) => setRefused(m), []);
+  useOutboxSync(!!me, onRefused);
   if (!ready) {
     return (
       <>
@@ -32,6 +37,10 @@ export function App() {
       <Background />
       <TopBar />
       <main className="page">
+        {refused && (
+          <div className="card glass error" style={{ minHeight: 0, marginBottom: 14 }}
+               onClick={() => setRefused(null)}>{t("offlineFailed")}: {refused}</div>
+        )}
         <Routes>
           <Route path="/" element={<Home />} />
           <Route path="/butler" element={<Butler />} />

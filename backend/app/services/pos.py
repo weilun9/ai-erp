@@ -451,6 +451,41 @@ def sell(db: Session, p: Principal, body: dict[str, Any]) -> tuple[PosSale, bool
     )
 
 
+def catalog(db: Session, p: Principal) -> dict[str, Any]:
+    """Everything a till needs to keep selling offline: active items with their units,
+    list prices, tax rate and barcode match keys (the same 11/12/13-digit keys the
+    server matches on). No cost prices."""
+    p.require("pos.sale.create")
+    taxes = {
+        t.id: t.rate for t in db.scalars(select(TaxCode).where(TaxCode.company_id == p.company_id))
+    }
+    items = db.scalars(
+        select(Item)
+        .where(Item.company_id == p.company_id, Item.is_active.is_(True))
+        .options(selectinload(Item.uoms), selectinload(Item.barcodes))
+        .order_by(Item.code)
+    ).all()
+    return {
+        "generated_at": datetime.now(UTC),
+        "items": [
+            {
+                "id": i.id,
+                "code": i.code,
+                "name": i.name,
+                "base_uom": i.base_uom,
+                "tax_rate": taxes.get(i.sales_tax_code_id, ZERO),
+                "units": [
+                    {"uom": u.uom, "factor": u.factor, "price": u.selling_price} for u in i.uoms
+                ],
+                "barcodes": [
+                    {"barcode": b.barcode, "uom": b.uom, "keys": list(b.keys)} for b in i.barcodes
+                ],
+            }
+            for i in items
+        ],
+    }
+
+
 def quote(db: Session, p: Principal, raw: list[dict[str, Any]]) -> dict[str, Any]:
     """What the till shows while scanning: the same pricing as the sale, nothing saved."""
     p.require("pos.sale.create")

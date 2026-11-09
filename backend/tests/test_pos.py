@@ -304,3 +304,12 @@ def test_quote_prices_like_the_sale_and_saves_nothing(till, client) -> None:
     assert (q["total"], q["cash_total"]) == ("10.63", "10.65")
     assert q["needs_supervisor"] == ["line 2: price 3.00 instead of 3.3300"]
     assert _balance(client, till, till["kopi"]) == ("100.0000", "2.0000")  # nothing sold
+
+
+def test_catalog_has_what_an_offline_till_needs_and_no_cost(till) -> None:
+    cat = till["pc"].get(f"{POS}/catalog", headers=till["ch"]).json()
+    kopi_item = next(i for i in cat["items"] if i["code"] == "KOPI")
+    assert kopi_item["tax_rate"] == "10.0000"
+    assert kopi_item["units"] == [{"uom": "PCS", "factor": "1.0000", "price": "3.3300"}]
+    assert kopi_item["barcodes"][0]["keys"] == ["955634531007"]  # 12 and 13 digits both match
+    assert "cost" not in str(cat).lower() and "purchase_price" not in str(cat)

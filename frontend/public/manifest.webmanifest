@@ -1,0 +1,16 @@
+{
+  "name": "AI 管家进销存",
+  "short_name": "AI ERP",
+  "description": "Inventory, sales, POS and AI butler for a Malaysian shop",
+  "start_url": "/till",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#cfe8f7",
+  "theme_color": "#9fd3f5",
+  "icons": [
+    { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" },
+    { "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml" }
+  ]
+}

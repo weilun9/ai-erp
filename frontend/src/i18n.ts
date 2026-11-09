@@ -68,6 +68,8 @@ const zh = {
   "customer-cn": "退货单",
   noAccess: "你没有这项权限",
   till: "收银",
+  offlineNoOverride: "离线时不能改价或打折（需要主管在线授权）",
+  offlineHint: "没有网络：可以继续收银，销售会在恢复后自动上传；其他页面需要网络。",
   scanHere: "扫描条码或输入商品名称，按 Enter",
   emptyBasket: "扫描商品开始收银",
   notFound: "找不到",
@@ -177,6 +179,9 @@ const en: Record<Key, string> = {
   "customer-cn": "Credit notes",
   noAccess: "You do not have access to this",
   till: "Till",
+  offlineNoOverride: "Offline: price changes and discounts need a supervisor online",
+  offlineHint: "No connection: the till keeps working and uploads sales when it is back; " +
+    "other pages need the connection.",
   scanHere: "Scan a barcode or type an item name, then Enter",
   emptyBasket: "Scan an item to start",
   notFound: "Not found",

@@ -196,6 +196,12 @@ def close_shift(shift_id: uuid.UUID, body: ShiftCloseIn, p: CurrentUser, db: DB)
     return _shift(svc.close_shift(db, p, shift_id, body.counted_cash, body.note))
 
 
+@router.get("/catalog")
+def catalog(p: CurrentUser, db: DB) -> dict[str, Any]:
+    """Items, units, prices, tax rates and barcode keys, cached by the till for offline."""
+    return svc.catalog(db, p)
+
+
 class QuoteIn(BaseModel):
     lines: list[SaleLineIn] = Field(min_length=1, max_length=300)
 

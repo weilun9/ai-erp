@@ -3,7 +3,9 @@ import { ApiError, api, money, qty as fmtQty } from "../api";
 import type { Page } from "../api";
 import { useSession } from "../session";
 import { isOffline, outbox } from "../pos/outbox";
+import { announce, useWaiting } from "../pos/sync";
 import { Receipt } from "../pos/Receipt";
+import { findBarcode, refreshCatalog, searchName, unitPrice } from "../pos/catalog";
 import type { ReceiptData } from "../pos/Receipt";
 
 // --- types --------------------------------------------------------------------------------
@@ -43,6 +45,7 @@ type Method = "CASH" | "CARD" | "EWALLET";
 const r2 = (v: number) => Math.round((v + Number.EPSILON) * 100) / 100;
 const r05 = (v: number) => Math.round((v + Number.EPSILON) * 20) / 20;
 const PRICE_KEY = "pos-prices";
+const SHIFT_KEY = "pos-shift";
 
 type PriceBook = Record<string, { code: string; name: string; price: string; rate: string }>;
 function priceBook(): PriceBook {
@@ -73,7 +76,9 @@ function estimate(lines: Line[]): Quote | null {
   const book = priceBook();
   const out: QuoteLine[] = [];
   for (const l of lines) {
-    const p = book[`${l.item_id}|${l.uom}`];
+    const cat = unitPrice(l.item_id, l.uom);
+    const p = cat ? { code: l.code, name: l.name, price: cat.price, rate: cat.rate }
+      : book[`${l.item_id}|${l.uom}`];
     if (!p) return null;
     const price = Number(l.unit_price ?? p.price);
     const sub = r2(l.qty * price * (100 - Number(l.discount_pct ?? 0)) / 100);
@@ -126,7 +131,7 @@ function SupervisorDialog({ reasons, onOk, onCancel }: {
 // --- the till -----------------------------------------------------------------------------
 
 export function Till() {
-  const { me, t, can } = useSession();
+  const { me, t, can, offline: sessionOffline } = useSession();
   const [shift, setShift] = useState<Shift | null | undefined>(undefined);
   const [lines, setLines] = useState<Line[]>([]);
   const [quote, setQuote] = useState<Quote | null>(null);
@@ -142,38 +147,47 @@ export function Till() {
   const [receipt, setReceipt] = useState<ReceiptData | null>(null);
   const [panel, setPanel] = useState<"close" | "return" | null>(null);
   const [editing, setEditing] = useState<{ key: string; price: string; disc: string } | null>(null);
-  const [waiting, setWaiting] = useState(outbox.list().length);
+  const waiting = useWaiting();
   const scanRef = useRef<HTMLInputElement>(null);
   const saleId = useRef<string>(crypto.randomUUID()); // one per basket: retries reuse it
 
   const loadShift = useCallback(() => {
-    api<Shift | null>("/pos/shifts/current").then(setShift).catch(() => setShift(null));
+    api<Shift | null>("/pos/shifts/current", { timeoutMs: 4000 })
+      .then((s) => {
+        setShift(s);
+        try {
+          if (s) localStorage.setItem(SHIFT_KEY, JSON.stringify(s));
+          else localStorage.removeItem(SHIFT_KEY);
+        } catch { /* fine */ }
+      })
+      .catch((e) => {
+        let saved: Shift | null = null;
+        try { saved = JSON.parse(localStorage.getItem(SHIFT_KEY) ?? "null"); } catch { /* */ }
+        if (isOffline(e) && saved) { setShift(saved); setOffline(true); }
+        else setShift(null);
+      });
   }, []);
   useEffect(() => { loadShift(); }, [loadShift]);
+  // Online: refresh the offline copy of the item list.
+  useEffect(() => {
+    if (!sessionOffline) refreshCatalog().catch(() => undefined);
+  }, [sessionOffline]);
   // The scanner types into the scan box, but never steal focus from an open dialog.
   useEffect(() => {
     if (!receipt && !panel && !supervisor) scanRef.current?.focus();
   }, [shift, receipt, panel, supervisor]);
 
-  // Send waiting offline sales every 15 s.
-  useEffect(() => {
-    const tick = async () => {
-      if (!outbox.list().length) return;
-      const r = await outbox.flush();
-      setWaiting(outbox.list().length);
-      if (r.sent > 0) setOffline(false);  // the server answered: we are back
-      if (r.failed.length) setError(`${t("offlineFailed")}: ${r.failed[0].message}`);
-    };
-    const id = window.setInterval(tick, 15000);
-    return () => window.clearInterval(id);
-  }, [t]);
 
   // Price the basket on the server whenever it changes.
   useEffect(() => {
     if (!lines.length) { setQuote(null); return; }
     let live = true;
+    // Known to be offline: show the local estimate at once; the server still gets asked
+    // and takes over as soon as it answers.
+    if (offline || sessionOffline) setQuote(estimate(lines));
     const h = window.setTimeout(() => {
-      api<Quote>("/pos/quote", { method: "POST", body: { lines: lines.map(wire) } })
+      api<Quote>("/pos/quote", { method: "POST", body: { lines: lines.map(wire) },
+                                 timeoutMs: 3000 })
         .then((q) => { if (live) { remember(q); setQuote(q); setOffline(false); setError(null); } })
         .catch((e) => {
           if (!live) return;
@@ -212,10 +226,13 @@ export function Till() {
     const text = scan.trim();
     if (!text) return;
     setError(null);
+    if (sessionOffline || offline) {
+      if (offlineScan(text)) return;
+    }
     try {
       if (/^\d{8,14}$/.test(text)) {
         const r = await api<{ hits: { matched_uom: string; item: { id: string; code: string; name: string } }[] }>(
-          "/items/lookup", { query: { barcode: text } });
+          "/items/lookup", { query: { barcode: text }, timeoutMs: 3000 });
         if (r.hits.length === 1) {
           const h = r.hits[0];
           rememberBarcode(text, { ...h.item, uom: h.matched_uom });
@@ -224,15 +241,31 @@ export function Till() {
         if (r.hits.length === 0) return setError(`${t("notFound")}: ${text}`);
       }
       const p = await api<Page<{ id: string; code: string; name: string; base_uom: string }>>(
-        "/items", { query: { q: text, page_size: 8 } });
+        "/items", { query: { q: text, page_size: 8 }, timeoutMs: 3000 });
       if (p.items.length === 1) add(p.items[0], p.items[0].base_uom);
       else if (p.items.length) setPicks(p.items);
       else setError(`${t("notFound")}: ${text}`);
     } catch (err) {
-      const known = barcodes()[text];
-      if (isOffline(err) && known) return add(known, known.uom, text);  // scanned before
-      setError(isOffline(err) ? t("offlineScan") : err instanceof Error ? err.message : String(err));
+      if (isOffline(err)) {
+        setOffline(true);
+        if (offlineScan(text)) return;
+        return setError(t("offlineScan"));
+      }
+      setError(err instanceof Error ? err.message : String(err));
     }
+  }
+
+  /** Offline: scan from the till's copy of the catalog (then from recent scans). */
+  function offlineScan(text: string): boolean {
+    const hit = findBarcode(text);
+    if (hit) { add(hit.item, hit.uom, text); return true; }
+    const known = barcodes()[text];
+    if (known) { add(known, known.uom, text); return true; }
+    const byName = searchName(text);
+    if (byName.length === 1) { add(byName[0], byName[0].base_uom); return true; }
+    if (byName.length) { setPicks(byName); return true; }
+    setError(`${t("notFound")}: ${text}`);
+    return true;
   }
 
   const total = quote ? (method === "CASH" ? quote.cash_total : quote.total) : "0";
@@ -248,24 +281,38 @@ export function Till() {
                    ...(reference ? { reference } : {}) }],
       ...(sup ? { supervisor: sup } : {}),
     };
+    const queueOffline = () => {
+      outbox.push({ path: "/pos/sales", body });
+      announce();
+      const q = quote;
+      finish({ kind: "SALE", receipt_no: t("pendingNo"), sold_at: body.sold_at,
+        subtotal: q.subtotal, tax_total: q.tax_total,
+        rounding: String(r2(Number(total) - Number(q.total))), total,
+        tendered: String(body.payments[0].amount), change: String(r2(change)),
+        payments: [{ method, amount: total }], lines: [] }, true);
+    };
+    const knownOffline = offline || sessionOffline;
+    if (knownOffline && lines.some((l) => l.unit_price !== undefined || l.discount_pct)) {
+      // A supervisor's approval cannot be checked offline; the server would refuse it later.
+      setError(t("offlineNoOverride"));
+      return;
+    }
+    if (knownOffline && !sup) {
+      queueOffline();  // no point making the customer wait for a timeout
+      return;
+    }
     setBusy(true);
     setError(null);
     try {
-      const s = await api<Sale>("/pos/sales", { method: "POST", body });
+      const s = await api<Sale>("/pos/sales", { method: "POST", body, timeoutMs: 8000 });
       finish(s, false);
     } catch (e) {
       if (e instanceof ApiError && e.details.code === "SUPERVISOR_REQUIRED") {
         setSupervisor({ reasons: (e.details.reasons as string[]) ?? quote.needs_supervisor,
                         retry: (s) => pay(s) });
       } else if (isOffline(e) && !sup) {
-        outbox.push({ path: "/pos/sales", body });
-        setWaiting(outbox.list().length);
-        const q = quote;
-        finish({ kind: "SALE", receipt_no: t("pendingNo"), sold_at: body.sold_at,
-          subtotal: q.subtotal, tax_total: q.tax_total,
-          rounding: String(r2(Number(total) - Number(q.total))), total,
-          tendered: String(body.payments[0].amount), change: String(r2(change)),
-          payments: [{ method, amount: total }], lines: [] }, true);
+        setOffline(true);
+        queueOffline();  // same client_uuid: if it did arrive, the upload just confirms it
       } else {
         setError(e instanceof Error ? e.message : String(e));
       }

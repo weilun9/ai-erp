@@ -34,14 +34,29 @@ async function parse(res: Response): Promise<unknown> {
   return body;
 }
 
-export async function refresh(): Promise<boolean> {
-  const res = await fetch(`${BASE}/auth/refresh`, { method: "POST", credentials: "same-origin" });
+export type RefreshResult = "ok" | "denied" | "offline";
+
+/** "denied" = the server says log in again; "offline" = the server could not be reached. */
+export async function refreshSession(): Promise<RefreshResult> {
+  let res: Response;
+  try {
+    res = await fetch(`${BASE}/auth/refresh`, {
+      method: "POST", credentials: "same-origin", signal: AbortSignal.timeout(4000),
+    });
+  } catch {
+    return "offline";  // no connection, or no answer within 4 s
+  }
+  if ([502, 503, 504].includes(res.status)) return "offline";
   if (!res.ok) {
     token = null;
-    return false;
+    return "denied";
   }
   token = ((await res.json()) as { access_token: string }).access_token;
-  return true;
+  return "ok";
+}
+
+export async function refresh(): Promise<boolean> {
+  return (await refreshSession()) === "ok";
 }
 
 export async function login(username: string, password: string): Promise<void> {
@@ -63,7 +78,7 @@ type Query = Record<string, string | number | boolean | undefined | null>;
 
 export async function api<T>(
   path: string,
-  opts: { method?: string; body?: unknown; query?: Query } = {},
+  opts: { method?: string; body?: unknown; query?: Query; timeoutMs?: number } = {},
 ): Promise<T> {
   const qs = opts.query
     ? "?" + new URLSearchParams(
@@ -81,6 +96,8 @@ export async function api<T>(
         ...(opts.body !== undefined ? { "Content-Type": "application/json" } : {}),
       },
       body: opts.body !== undefined ? JSON.stringify(opts.body) : undefined,
+      // a dead connection can take many seconds to fail; the till cannot wait that long
+      signal: opts.timeoutMs ? AbortSignal.timeout(opts.timeoutMs) : undefined,
     });
   let res = await send();
   if (res.status === 401 && (await refresh())) res = await send();

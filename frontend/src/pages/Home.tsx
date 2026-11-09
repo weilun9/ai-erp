@@ -70,7 +70,7 @@ interface Summary {
 }
 
 export function Home() {
-  const { me, t, can, lang } = useSession();
+  const { me, t, can, lang, offline } = useSession();
   const nav = useNavigate();
   const [ask, setAsk] = useState("");
 
@@ -117,6 +117,13 @@ export function Home() {
         <h1>{t("hello")}, {me?.display_name} {greet}</h1>
         <p>{today.toLocaleDateString(lang === "zh" ? "zh-CN" : "en-MY", { weekday: "long", day: "numeric", month: "long" })}</p>
       </div>
+      {offline && (
+        <section className="card glass" style={{ minHeight: 0, marginBottom: 18 }}>
+          <strong>{t("offlineHint")}</strong>
+          {can("pos.sale.create") && <Link className="btn green" style={{ alignSelf: "flex-start",
+            textDecoration: "none" }} to="/till">{t("till")} →</Link>}
+        </section>
+      )}
       <div className="grid">
         {can("ai.chat.use") && (
           <section className="card glass new-card"
