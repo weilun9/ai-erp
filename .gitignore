@@ -36,3 +36,6 @@ backend/var/
 
 # Vercel CLI link data
 .vercel/
+
+.vercel
+.env*
