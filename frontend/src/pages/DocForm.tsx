@@ -6,7 +6,9 @@ import { useSession } from "../session";
 import { Picker } from "../docs/Picker";
 import { KINDS, STATUS_COLOR, isKind } from "../docs/kinds";
 import type { Kind, KindDef } from "../docs/kinds";
-import { errorText, isNum, round2, today, warnText } from "../docs/shared";
+import { amt, errorText, isNum, round2, today, warnText } from "../docs/shared";
+import { PrintSheet } from "../docs/PrintSheet";
+import type { PrintParty } from "../docs/PrintSheet";
 import type { Warning } from "../docs/shared";
 import { PayForm } from "./PayForm";
 
@@ -20,10 +22,11 @@ interface Item {
   sales_tax_code_id: string | null; purchase_tax_code_id: string | null;
 }
 interface TaxCode { id: string; code: string; name: string; rate: string; is_active: boolean }
-interface Party { id: string; code: string; name: string }
+interface Party extends PrintParty { id: string; code: string; name: string }
 interface LineOut {
   id: string; item_id: string; uom: string; qty: string; unit_price?: string; price_source: string;
   discount_pct: string; tax_code_id: string | null; line_total?: string; remark: string | null;
+  tax_rate?: string;
   do_line_id?: string | null;
 }
 interface DocOut {
@@ -333,8 +336,31 @@ function Form({ def, id }: { def: KindDef; id: string }) {
   const priceHidden = doc?.lines.some((l) => l.unit_price === undefined);
   const uomsOf = (r: Row) => r.item.uoms.map((u) => u.uom);
 
+  // --- the paper version (from the saved document) ---------------------------------------------
+  const isDO = def.kind === "delivery-order";  // a delivery order carries no prices
+  const store = locations.find((l) => l.id === doc?.location_id);
+  const printRows = (doc?.lines ?? []).map((l, i) => {
+    const it = items.current.get(l.item_id);
+    const base = [i + 1, `${it?.code ?? ""}  ${it?.name ?? ""}`, fmtQty(l.qty), l.uom];
+    return isDO ? base : [
+      ...base,
+      l.unit_price != null ? amt(l.unit_price) : "",
+      Number(l.discount_pct) ? `${fmtQty(l.discount_pct)}%` : "",
+      Number(l.tax_rate ?? 0) ? `${fmtQty(l.tax_rate as string)}%` : "",
+      l.line_total != null ? amt(l.line_total) : "",
+    ];
+  });
+  const printColumns = [
+    { label: "#", width: "28px" }, { label: t("item") }, { label: t("qtyLabel"), num: true }, { label: t("uom") },
+    ...(isDO ? [] : [
+      { label: t("unitPrice"), num: true }, { label: t("discPct"), num: true },
+      { label: t("tax"), num: true }, { label: t("amountRM"), num: true },
+    ]),
+  ];
+
   return (
-    <div className="docform">
+    <>
+    <div className="docform no-print">
       <section className="card glass">
         <div className="row">
           <div>
@@ -344,6 +370,10 @@ function Form({ def, id }: { def: KindDef; id: string }) {
             </h2>
           </div>
           <div className="row" style={{ gap: 8 }}>
+            {doc && (
+              <button className="chip-btn" disabled={dirty} title={dirty ? t("printSaveFirst") : undefined}
+                      onClick={() => window.print()}>{t("printDoc")}</button>
+            )}
             {dirty && <span className="badge amber">{t("unsaved")}</span>}
             {!editable && doc && <span className="muted nowrap">{t("readOnly")}</span>}
             <span className={`badge ${STATUS_COLOR[status] ?? ""}`}>{status}</span>
@@ -585,5 +615,35 @@ function Form({ def, id }: { def: KindDef; id: string }) {
         )}
       </section>
     </div>
+    {doc && (
+      <PrintSheet
+        title={t(def.kind).toUpperCase()}
+        docNo={doc.doc_no}
+        status={doc.status}
+        partyLabel={t(def.party === "supplier" ? "supplier" : isDO ? "deliverTo" : "billTo")}
+        party={head.party}
+        meta={[
+          [t("date"), doc.doc_date],
+          [t("store"), store ? `${store.code} · ${store.name}` : null],
+          [t(def.party === "customer" ? "customerRef" : "supplierRef"), doc[def.refField] as string | null],
+          [t("dueDate"), doc.due_date],
+          [t("validUntil"), doc.valid_until],
+          [t("refInvoice"), invoices.find((x) => x.id === doc.ref_invoice_id)?.doc_no],
+          [t("refInvoiceNo"), doc.ref_invoice_no],
+          [t("reason"), doc.reason],
+        ]}
+        columns={printColumns}
+        rows={printRows}
+        totals={isDO ? [] : [
+          [t("subtotalLabel"), money(doc.subtotal)],
+          [t("taxLabel"), money(doc.tax_total)],
+          [t("total"), money(doc.total), true],
+        ]}
+        remark={doc.remark}
+        signatures={isDO ? [t("sigIssued"), t("sigReceived")]
+          : def.kind === "grn" ? [t("sigReceivedBy"), t("sigChecked")] : [t("sigAuthorised")]}
+      />
+    )}
+    </>
   );
 }

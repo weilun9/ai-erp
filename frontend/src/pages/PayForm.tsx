@@ -6,7 +6,9 @@ import { useSession } from "../session";
 import { Picker } from "../docs/Picker";
 import { STATUS_COLOR } from "../docs/kinds";
 import type { KindDef } from "../docs/kinds";
-import { errorText, isNum, round2, today, warnText } from "../docs/shared";
+import { amt, errorText, isNum, round2, today, warnText } from "../docs/shared";
+import { PrintSheet } from "../docs/PrintSheet";
+import type { PrintParty } from "../docs/PrintSheet";
 import type { Warning } from "../docs/shared";
 import type { Key } from "../i18n";
 
@@ -16,7 +18,7 @@ import type { Key } from "../i18n";
 // Payment: keyed in line by line as the supplier's payment advice reads; on save the server
 // matches each line to our GRN / supplier CN by the supplier's own number.
 
-interface Party { id: string; code: string; name: string }
+interface Party extends PrintParty { id: string; code: string; name: string }
 interface OpenItem {
   doc_type: string; id: string; doc_no: string; doc_date: string; due_date: string | null;
   side: string; amount: string; settled: string; open: string;
@@ -335,7 +337,8 @@ export function PayForm({ def, id }: { def: KindDef; id: string }) {
     ] : (doc?.lines ?? []).map((l) => ({ id: l.invoice_id as string, doc_no: invNo[l.invoice_id as string] ?? "…" }));
 
   return (
-    <div className="docform">
+    <>
+    <div className="docform no-print">
       <section className="card glass">
         <div className="row">
           <div>
@@ -345,6 +348,10 @@ export function PayForm({ def, id }: { def: KindDef; id: string }) {
             </h2>
           </div>
           <div className="row" style={{ gap: 8 }}>
+            {doc && (
+              <button className="chip-btn" disabled={dirty} title={dirty ? t("printSaveFirst") : undefined}
+                      onClick={() => window.print()}>{t("printDoc")}</button>
+            )}
             {dirty && <span className="badge amber">{t("unsaved")}</span>}
             {!editable && doc && <span className="muted nowrap">{t("readOnly")}</span>}
             <span className={`badge ${STATUS_COLOR[status] ?? ""}`}>{status}</span>
@@ -595,6 +602,37 @@ export function PayForm({ def, id }: { def: KindDef; id: string }) {
         </section>
       )}
     </div>
+    {doc && (
+      <PrintSheet
+        title={t(receipt ? "titleReceipt" : "titleVoucher").toUpperCase()}
+        docNo={doc.doc_no}
+        status={doc.status}
+        partyLabel={t(receipt ? "receivedFrom" : "paidTo")}
+        party={head.party}
+        meta={[
+          [t("date"), doc.doc_date],
+          [t("method"), t(`method${doc.method}` as Key)],
+          [t("bankRef"), doc.bank_ref],
+          [t("adviceNo"), doc.supplier_ref_no],
+        ]}
+        columns={receipt
+          ? [{ label: "#", width: "28px" }, { label: t("sales-invoice") }, { label: t("amountRM"), num: true }]
+          : [{ label: "#", width: "28px" }, { label: t("lineType") }, { label: t("supplierDocNo") },
+             { label: t("matched") }, { label: t("amountRM"), num: true }]}
+        rows={doc.lines.map((l, i) => receipt
+          ? [i + 1, invNo[l.invoice_id as string] ?? "", amt(l.amount)]
+          : [i + 1, t(`line${l.line_type}` as Key), l.ref_no, l.matched_no,
+             amt(SIGN[l.line_type as string] * Number(l.amount))])}
+        totals={receipt ? [
+          [t("amountReceived"), money(doc.amount), true],
+          [t("assigned"), money(doc.lines.reduce((s, l) => s + Number(l.amount), 0))],
+          ...(doc.unallocated != null ? [[t("advance"), money(doc.unallocated)] as [string, string]] : []),
+        ] : [[t(Number(doc.amount) < 0 ? "supplierPaysUs" : "netPaid"), money(Math.abs(Number(doc.amount))), true]]}
+        remark={doc.remark}
+        signatures={receipt ? [t("sigReceivedBy")] : [t("sigPrepared"), t("sigAuthorised")]}
+      />
+    )}
+    </>
   );
 
   function actions() {

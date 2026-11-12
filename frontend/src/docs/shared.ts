@@ -8,6 +8,10 @@ export const DOC_ROUTE: Record<string, string> = {
   GRN: "grn", SCN: "supplier-cn", PV: "supplier-payment",
 };
 
+/** A plain 2-decimal number for tables on paper (the column heading carries the currency). */
+export const amt = (v: string | number) =>
+  Number(v).toLocaleString("en-MY", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
 export const today = () => new Date().toLocaleDateString("en-CA");  // YYYY-MM-DD, local
 export const round2 = (x: number) => Math.round(x * 100) / 100;
 export const isNum = (s: string) => s.trim() !== "" && Number.isFinite(Number(s));

@@ -338,6 +338,7 @@ select.input { appearance: auto; }
 .knock-bar { position: sticky; top: 8px; z-index: 5; }
 .print-only { display: none; }
 @media print {
+  @page { size: A4; margin: 14mm; }
   .scene, .topbar, .tabbar, .no-print { display: none !important; }
   .print-only { display: block; margin-bottom: 12px; }
   body { background: #fff; }
@@ -377,3 +378,34 @@ select.input { appearance: auto; }
 .facts dd { margin: 0; font-variant-numeric: tabular-nums; }
 .advice { background: rgba(255, 255, 255, 0.6); border-left: 3px solid var(--sky); padding: 8px 12px;
   border-radius: 10px; font-size: 14px; }
+
+/* the paper version of a document (PrintSheet): plain black on white, A4 */
+.sheet { color: #111; font-size: 12px; line-height: 1.45; }
+.sheet-head { display: flex; justify-content: space-between; gap: 24px; padding-bottom: 12px;
+  border-bottom: 2px solid #111; }
+.sheet-company { font-size: 18px; font-weight: 700; }
+.sheet-title { text-align: right; }
+.sheet-kind { font-size: 20px; font-weight: 700; letter-spacing: 0.04em; }
+.sheet-no { font-size: 15px; font-weight: 600; }
+.sheet-flag { margin-top: 4px; font-weight: 700; color: #b00020; }
+.sheet-small { font-size: 10.5px; color: #444; }
+.sheet-label { font-size: 10px; text-transform: uppercase; letter-spacing: 0.06em; color: #555; }
+.sheet-parties { display: flex; justify-content: space-between; gap: 24px; margin: 14px 0; }
+.sheet-meta, .sheet-totals { margin: 0; }
+.sheet-meta div, .sheet-totals div { display: flex; justify-content: space-between; gap: 18px; }
+.sheet-meta dt, .sheet-totals dt { color: #555; }
+.sheet-meta dd, .sheet-totals dd { margin: 0; font-variant-numeric: tabular-nums; text-align: right; }
+.sheet-table { width: 100%; border-collapse: collapse; }
+.sheet-table th { text-align: left; font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em;
+  border-bottom: 1px solid #111; padding: 6px 6px; }
+.sheet-table td { padding: 6px 6px; border-bottom: 1px solid #ddd; vertical-align: top; }
+.sheet-table .num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.sheet-table tr { break-inside: avoid; }
+.sheet-foot { display: flex; justify-content: space-between; gap: 24px; margin-top: 12px; break-inside: avoid; }
+.sheet-remark { max-width: 55%; }
+.sheet-totals { min-width: 220px; }
+.sheet-totals .strong { font-size: 14px; font-weight: 700; border-top: 1px solid #111; margin-top: 4px;
+  padding-top: 4px; }
+.sheet-sign { display: flex; gap: 32px; margin-top: 56px; break-inside: avoid; }
+.sheet-sign div { flex: 0 1 44%; border-top: 1px solid #111; padding-top: 4px; font-size: 10.5px; color: #444; }
+.sheet-end { margin-top: 18px; text-align: center; }
