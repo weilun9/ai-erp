@@ -336,6 +336,16 @@ const en = {
   addBarcode: "Add a barcode",
   unitsHint: "Stock is kept in the base unit. Every other unit says how many base units it holds.",
   itemCodeRule: "Code is required and cannot contain spaces",
+  pickTitle: "What goes on this invoice?",
+  pickHint: "Bill all of it or part of it now; the rest stays on the delivery order for a later invoice.",
+  delivered: "Delivered",
+  invoicedOf: "Invoiced",
+  leftToInvoice: "Left",
+  invoiceNow: "Invoice now",
+  createInvoiceDraft: "Create invoice draft",
+  fullyInvoiced: "Fully invoiced",
+  pickTooMuch: "more than what is left:",
+  pickNothing: "Enter a quantity on at least one line",
 };
 
 export type Key = keyof typeof en;

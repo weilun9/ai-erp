@@ -250,6 +250,79 @@ def test_invoice_from_do_moves_no_stock_and_can_be_partial(store, client) -> Non
     assert r.status_code == 409 and r.json()["error"]["details"]["documents"] == [inv["doc_no"]]
 
 
+def _pick(client, s, do, lines):
+    return client.post(
+        f"{_url('sales-invoice')}/convert",
+        json={"source_kind": "delivery-order", "source_id": do["id"], "lines": lines},
+        headers=s["h"],
+    )
+
+
+def test_do_lines_and_quantities_can_be_picked_for_an_invoice(store, client) -> None:
+    do = _posted(
+        client,
+        store,
+        "delivery-order",
+        [milo(store, "10", unit_price="2.40"), milo(store, "1", uom="CTN", unit_price="27.00")],
+    )
+    pcs, ctn = do["lines"]
+
+    # 4 of the 10 pieces now; the carton stays for later
+    inv = _pick(client, store, do, [{"source_line_id": pcs["id"], "qty": "4"}])
+    assert inv.status_code == 201, inv.text
+    inv = inv.json()
+    assert [(ln["do_line_id"], ln["qty"]) for ln in inv["lines"]] == [(pcs["id"], "4.0000")]
+    assert inv["lines"][0]["unit_price"] == "2.4000"  # the DO's price comes along
+    inv = _do(client, store, "sales-invoice", inv, "save").json()
+    _do(client, store, "sales-invoice", inv, "post")
+
+    # the delivery order now says what is invoiced on each line
+    seen = client.get(f"{_url('delivery-order')}/{do['id']}", headers=store["h"]).json()
+    assert [ln["invoiced_qty"] for ln in seen["lines"]] == ["4.0000", "0.0000"]
+    # ... and other documents do not carry that field
+    assert "invoiced_qty" not in inv["lines"][0]
+
+    # more than what is left is refused, with the numbers
+    r = _pick(client, store, do, [{"source_line_id": pcs["id"], "qty": "7"}])
+    assert r.status_code == 422
+    assert r.json()["error"]["details"]["lines"] == [
+        {"do_line": 1, "left": "6.0000", "asked": "7.0000"}
+    ]
+
+    # the rest in one go: 6 pieces and the carton
+    rest = _pick(
+        client,
+        store,
+        do,
+        [{"source_line_id": pcs["id"], "qty": "6"}, {"source_line_id": ctn["id"], "qty": "1"}],
+    ).json()
+    assert [ln["qty"] for ln in rest["lines"]] == ["6.0000", "1.0000"]
+    assert rest["lines"][1]["uom"] == "CTN"
+
+
+def test_picking_is_checked(store, client) -> None:
+    do = _posted(client, store, "delivery-order", [milo(store, "3", unit_price="2.40")])
+    other = _posted(client, store, "delivery-order", [milo(store, "1", unit_price="2.40")])
+    line = do["lines"][0]["id"]
+
+    r = _pick(client, store, do, [{"source_line_id": other["lines"][0]["id"], "qty": "1"}])
+    assert r.status_code == 400  # a line of another delivery order
+    r = _pick(client, store, do, [{"source_line_id": line, "qty": "1"}] * 2)
+    assert r.status_code == 400  # the same line twice
+    assert _pick(client, store, do, []).status_code == 400  # nothing picked
+    assert _pick(client, store, do, [{"source_line_id": line, "qty": "0"}]).status_code == 400
+
+    # picking only makes sense for a delivery order
+    q = _doc(client, store, "quotation", [milo(store, "1", unit_price="2.40")]).json()
+    q = _do(client, store, "quotation", q, "save").json()
+    r = client.post(
+        f"{_url('delivery-order')}/convert",
+        json={"source_kind": "quotation", "source_id": q["id"], "lines": []},
+        headers=store["h"],
+    )
+    assert r.status_code == 400
+
+
 def test_fully_invoiced_do_has_nothing_to_convert(store, client) -> None:
     do = _posted(client, store, "delivery-order", [milo(store, "2")])
     inv = _convert(client, store, "sales-invoice", "delivery-order", do).json()

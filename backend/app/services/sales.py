@@ -227,6 +227,13 @@ def _invoiced_qty(
     return dict(db.execute(stmt).all())
 
 
+def invoiced_by_line(db: Session, do) -> dict[uuid.UUID, Decimal]:
+    """For a delivery order: quantity of each line (in the line's own unit) that saved or
+    posted invoices already cover."""
+    done = _invoiced_qty(db, {ln.id for ln in do.lines})
+    return {ln.id: q4(done.get(ln.id, Decimal(0)) / ln.factor) for ln in do.lines}
+
+
 def _build_lines(
     db: Session,
     p: Principal,
@@ -730,8 +737,13 @@ def convert(
     source_kind: str,
     source_id: uuid.UUID,
     doc_date: date | None = None,
+    pick: list[dict[str, Any]] | None = None,
 ):
-    """Start a draft `target` from a quotation, DO or invoice (copying its lines)."""
+    """Start a draft `target` from a quotation, DO or invoice (copying its lines).
+
+    `pick` (delivery order -> invoice only) names the DO lines to invoice now and how much
+    of each, in the line's unit: [{"source_line_id", "qty"}]. Without it, everything that
+    is not invoiced yet is taken."""
     _kind(target)
     need = CONVERSIONS.get((source_kind, target))
     if need is None:
@@ -743,19 +755,52 @@ def convert(
     if src.status != need:
         raise DocState(f"Only a {need} {source_kind} can be converted", {"status": src.status})
 
+    if pick is not None and source_kind != "delivery-order":
+        raise BadRequest("Lines can only be picked when invoicing a delivery order")
     if source_kind == "delivery-order":
         done = _invoiced_qty(db, {ln.id for ln in src.lines})
-        lines = []
+        wanted: dict[uuid.UUID, Decimal] | None = None
+        if pick is not None:
+            wanted = {}
+            known = {ln.id for ln in src.lines}
+            for row in pick:
+                if row["source_line_id"] not in known:
+                    raise BadRequest("That line is not on this delivery order")
+                if row["source_line_id"] in wanted:
+                    raise BadRequest("The same delivery order line is picked twice")
+                wanted[row["source_line_id"]] = Decimal(row["qty"])
+            if not wanted:
+                raise BadRequest("Pick at least one line to invoice")
+        lines, over = [], []
         for ln in src.lines:
             left = ln.base_qty - done.get(ln.id, Decimal(0))
-            if left <= 0:
+            if wanted is not None:
+                if ln.id not in wanted:
+                    continue
+                qty = wanted[ln.id]
+                if q4(qty * ln.factor) > left:
+                    over.append(
+                        {
+                            "do_line": ln.line_no,
+                            "left": str(q4(left / ln.factor)),
+                            "asked": str(q4(qty)),
+                        }
+                    )
+                    continue
+            elif left <= 0:
                 continue
+            else:
+                qty = q4(left / ln.factor)
             row = _line_input(ln)
             row["unit_price"] = ln.unit_price  # the price agreed on the DO, whatever its source
             row["discount_pct"] = ln.discount_pct
-            row["qty"] = q4(left / ln.factor)
+            row["qty"] = qty
             row["do_line_id"] = ln.id
             lines.append(row)
+        if over:
+            raise BusinessRule(
+                "More than what is left to invoice on the delivery order", {"lines": over}
+            )
         if not lines:
             raise BusinessRule("Everything on this DO is already invoiced")
     else:

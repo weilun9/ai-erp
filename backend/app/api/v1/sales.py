@@ -58,10 +58,17 @@ class DocPatch(BaseModel):
     lines: list[LineIn] | None = Field(default=None, max_length=500)
 
 
+class PickIn(BaseModel):
+    source_line_id: uuid.UUID
+    qty: Decimal = Field(gt=0, max_digits=18, decimal_places=4)
+
+
 class ConvertIn(BaseModel):
     source_kind: Kind
     source_id: uuid.UUID
     doc_date: date | None = None
+    # delivery order -> invoice: the DO lines to invoice now (default: all that is left)
+    lines: list[PickIn] | None = Field(default=None, max_length=500)
 
 
 class VersionIn(BaseModel):
@@ -91,6 +98,8 @@ class LineOut(BaseModel):
     unit_cost: Decimal | None = sensitive("cost")
     remark: str | None
     do_line_id: uuid.UUID | None = None
+    # delivery order, single document only: how much of the line is invoiced already
+    invoiced_qty: Decimal | None = None
 
 
 class DocOut(BaseModel):
@@ -127,10 +136,20 @@ class Page[T](BaseModel):
     total: int
 
 
-def _out(doc, p, warnings: list[dict[str, Any]] | None = None) -> DocOut:
+def _out(
+    doc,
+    p,
+    warnings: list[dict[str, Any]] | None = None,
+    invoiced: dict[uuid.UUID, Decimal] | None = None,
+) -> DocOut:
     data = {c: getattr(doc, c) for c in DocOut.model_fields if hasattr(doc, c)}
     data["lines"] = [
-        shape(LineOut, {c: getattr(ln, c) for c in LineOut.model_fields if hasattr(ln, c)}, p)
+        shape(
+            LineOut,
+            {c: getattr(ln, c) for c in LineOut.model_fields if hasattr(ln, c)}
+            | ({"invoiced_qty": invoiced.get(ln.id, Decimal(0))} if invoiced is not None else {}),
+            p,
+        )
         for ln in doc.lines
     ]
     data["gross_profit"] = doc.subtotal - doc.cost_total if doc.status == "POSTED" else None
@@ -184,7 +203,9 @@ def list_docs(
 
 @router.get("/{kind}/{doc_id}", **EXCLUDE_UNSET)
 def get_doc(kind: Kind, doc_id: uuid.UUID, p: CurrentUser, db: DB) -> DocOut:
-    return _out(svc.get_doc(db, p, kind, doc_id), p)
+    doc = svc.get_doc(db, p, kind, doc_id)
+    invoiced = svc.invoiced_by_line(db, doc) if kind == "delivery-order" else None
+    return _out(doc, p, invoiced=invoiced)
 
 
 @router.post("/{kind}", status_code=201, **EXCLUDE_UNSET)
@@ -196,7 +217,8 @@ def create_doc(kind: Kind, body: DocIn, p: CurrentUser, db: DB) -> DocOut:
 
 @router.post("/{kind}/convert", status_code=201, **EXCLUDE_UNSET)
 def convert(kind: Kind, body: ConvertIn, p: CurrentUser, db: DB) -> DocOut:
-    return _out(svc.convert(db, p, kind, body.source_kind, body.source_id, body.doc_date), p)
+    pick = [ln.model_dump() for ln in body.lines] if body.lines is not None else None
+    return _out(svc.convert(db, p, kind, body.source_kind, body.source_id, body.doc_date, pick), p)
 
 
 @router.patch("/{kind}/{doc_id}", **EXCLUDE_UNSET)

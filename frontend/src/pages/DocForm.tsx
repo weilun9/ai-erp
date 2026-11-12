@@ -28,6 +28,7 @@ interface LineOut {
   discount_pct: string; tax_code_id: string | null; line_total?: string; remark: string | null;
   tax_rate?: string;
   do_line_id?: string | null;
+  invoiced_qty?: string;  // delivery order: already on saved or posted invoices
 }
 interface DocOut {
   id: string; doc_no: string | null; doc_date: string; status: string; version: number;
@@ -44,6 +45,7 @@ interface Row {
   key: number; item: Item; uom: string; qty: string; unit_price: string; discount_pct: string;
   tax_code_id: string; remark: string; do_line_id: string | null;
   serverPrice?: string;  // what the server priced a line left on "auto"
+  invoiced?: string;     // delivery order line: quantity already invoiced
 }
 interface Head {
   doc_date: string; party: Party | null; location_id: string; ref_no: string; remark: string;
@@ -97,6 +99,8 @@ function Form({ def, id }: { def: KindDef; id: string }) {
   const [invoices, setInvoices] = useState<{ id: string; doc_no: string; doc_date: string; total: string }[]>([]);
   const [voidReason, setVoidReason] = useState("");
   const [voiding, setVoiding] = useState(false);
+  // delivery order -> invoice: DO line id -> quantity to invoice now (null = picker closed)
+  const [pick, setPick] = useState<Record<string, string> | null>(null);
   const items = useRef(new Map<string, Item>());
   const listPath = `/${def.area === "sales" ? "sales" : "purchases"}?kind=${def.kind}`;
   const partyPath = def.party === "customer" ? "/customers" : "/suppliers";
@@ -138,7 +142,7 @@ function Form({ def, id }: { def: KindDef; id: string }) {
         unit_price: own && l.unit_price != null ? String(Number(l.unit_price)) : "",
         serverPrice: own ? undefined : l.unit_price,
         discount_pct: String(Number(l.discount_pct)), tax_code_id: l.tax_code_id ?? "",
-        remark: l.remark ?? "", do_line_id: l.do_line_id ?? null,
+        remark: l.remark ?? "", do_line_id: l.do_line_id ?? null, invoiced: l.invoiced_qty,
       };
     }));
     if (!keepWarnings) setWarnings(d.warnings ?? []);
@@ -314,12 +318,26 @@ function Form({ def, id }: { def: KindDef; id: string }) {
     await api(`${def.api}/${doc.id}`, { method: "DELETE" });
     nav(listPath);
   });
-  const convert = (target: Kind) => run(async () => {
+  const convert = (target: Kind, lines?: { source_line_id: string; qty: string }[]) => run(async () => {
     const d = await persist();
     const made = await api<DocOut>(`/sales/${target}/convert`,
-      { method: "POST", body: { source_kind: def.kind, source_id: d.id } });
+      { method: "POST", body: { source_kind: def.kind, source_id: d.id, ...(lines ? { lines } : {}) } });
     nav(`/docs/${target}/${made.id}`);
   });
+
+  // A delivery order is invoiced line by line, as much as the customer is billed for now.
+  const leftOf = (l: LineOut) => Math.max(0, Number(l.qty) - Number(l.invoiced_qty ?? 0));
+  const openPick = () =>
+    setPick(Object.fromEntries((doc?.lines ?? []).map((l) => [l.id, leftOf(l) ? String(leftOf(l)) : ""])));
+  const invoicePicked = () => {
+    const lines = (doc?.lines ?? [])
+      .filter((l) => isNum(pick?.[l.id] ?? "") && Number(pick?.[l.id]) > 0)
+      .map((l) => ({ source_line_id: l.id, qty: (pick as Record<string, string>)[l.id].trim() }));
+    const over = (doc?.lines ?? []).find((l) => Number(pick?.[l.id] || 0) > leftOf(l) + 1e-9);
+    if (over) return setError(`${items.current.get(over.item_id)?.name ?? ""}: ${t("pickTooMuch")} ${fmtQty(leftOf(over))}`);
+    if (lines.length === 0) return setError(t("pickNothing"));
+    return convert("sales-invoice", lines);
+  };
 
   // --- screen -------------------------------------------------------------------------------
 
@@ -338,6 +356,7 @@ function Form({ def, id }: { def: KindDef; id: string }) {
 
   // --- the paper version (from the saved document) ---------------------------------------------
   const isDO = def.kind === "delivery-order";  // a delivery order carries no prices
+  const fullyInvoiced = isDO && !!doc && doc.lines.every((l) => l.invoiced_qty !== undefined && leftOf(l) === 0);
   const store = locations.find((l) => l.id === doc?.location_id);
   const printRows = (doc?.lines ?? []).map((l, i) => {
     const it = items.current.get(l.item_id);
@@ -488,7 +507,11 @@ function Form({ def, id }: { def: KindDef; id: string }) {
                     <td className="muted">{i + 1}</td>
                     <td>
                       <div>{r.item.name}</div>
-                      <span className="muted">{r.item.code}{r.do_line_id ? ` · ${t("fromDo")}` : ""}</span>
+                      <span className="muted">
+                        {r.item.code}{r.do_line_id ? ` · ${t("fromDo")}` : ""}
+                        {r.invoiced !== undefined && status === "POSTED"
+                          ? ` · ${t("invoicedOf")} ${fmtQty(r.invoiced)} / ${fmtQty(r.qty)}` : ""}
+                      </span>
                     </td>
                     <td>
                       <select className="input sm" value={r.uom} disabled={!editable || !!r.do_line_id}
@@ -582,8 +605,15 @@ function Form({ def, id }: { def: KindDef; id: string }) {
             )}
             {doc && def.converts.filter((c) => c.from === status).map((c) =>
               can(`${def.perm}.doc.create`) && (
-                <button key={c.target} className="btn ghost" disabled={busy}
-                        onClick={() => convert(c.target)}>{t("convertTo")} {t(c.target).toLowerCase()}</button>
+                isDO ? (
+                  <button key={c.target} className="btn ghost" disabled={busy || fullyInvoiced}
+                          onClick={() => (pick ? setPick(null) : openPick())}>
+                    {fullyInvoiced ? t("fullyInvoiced") : `${t("convertTo")} ${t(c.target).toLowerCase()}`}
+                  </button>
+                ) : (
+                  <button key={c.target} className="btn ghost" disabled={busy}
+                          onClick={() => convert(c.target)}>{t("convertTo")} {t(c.target).toLowerCase()}</button>
+                )
               ))}
             {doc && (status === "SAVED" || status === "POSTED") && can(`${def.perm}.doc.void`) && (
               <button className="btn ghost danger" disabled={busy}
@@ -595,6 +625,42 @@ function Form({ def, id }: { def: KindDef; id: string }) {
           </div>
         </div>
 
+        {pick && doc && (
+          <div className="pick-box">
+            <strong>{t("pickTitle")}</strong>
+            <span className="muted">{t("pickHint")}</span>
+            <div className="scroll-x">
+              <table className="table doc-lines">
+                <thead>
+                  <tr>
+                    <th>{t("item")}</th><th className="num">{t("delivered")}</th>
+                    <th className="num">{t("invoicedOf")}</th><th className="num">{t("leftToInvoice")}</th>
+                    <th className="num">{t("invoiceNow")}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {doc.lines.map((l) => (
+                    <tr key={l.id}>
+                      <td>{items.current.get(l.item_id)?.name} <span className="muted">{l.uom}</span></td>
+                      <td className="num">{fmtQty(l.qty)}</td>
+                      <td className="num">{fmtQty(l.invoiced_qty ?? 0)}</td>
+                      <td className="num"><b>{fmtQty(leftOf(l))}</b></td>
+                      <td className="num">
+                        <input className="input sm num" inputMode="decimal" value={pick[l.id] ?? ""}
+                               disabled={leftOf(l) === 0} aria-label={`${t("invoiceNow")} ${l.uom}`}
+                               onChange={(e) => setPick({ ...pick, [l.id]: e.target.value })} />
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <div className="actions">
+              <button className="btn ghost" onClick={() => setPick(null)}>{t("cancel")}</button>
+              <button className="btn" disabled={busy} onClick={invoicePicked}>{t("createInvoiceDraft")}</button>
+            </div>
+          </div>
+        )}
         {voiding && doc && (
           <div className="row" style={{ justifyContent: "flex-end" }}>
             <input className="input" style={{ flex: 1, maxWidth: 420 }} value={voidReason}
