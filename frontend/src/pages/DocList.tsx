@@ -55,6 +55,12 @@ export function DocList({ area }: { area: Area }) {
             <button key={k} className={k === kind ? "on" : ""}
                     onClick={() => setParams({ kind: k }, { replace: true })}>{k === "grn" ? t(k) : `${t(k)}s`}</button>
           ))}
+          {area === "sales" && can("md.customer.read") && (
+            <Link className="tab-link" to="/parties/customer">{t("customers")}</Link>
+          )}
+          {area === "purchase" && can("md.supplier.read") && (
+            <Link className="tab-link" to="/parties/supplier">{t("suppliers")}</Link>
+          )}
           {area === "finance" && <Link className="tab-link" to="/accounts">{t("accounts")}</Link>}
           {area === "finance" && can("core.issue.read") && (
             <Link className="tab-link" to="/issues">{t("issues")}</Link>

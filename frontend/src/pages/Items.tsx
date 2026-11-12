@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { useSearchParams } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import { api, money, qty } from "../api";
 import type { Page } from "../api";
 import { useSession } from "../session";
@@ -57,6 +57,10 @@ export function Items() {
           <input className="input" style={{ flex: 1 }} value={text} placeholder={t("search")}
                  onChange={(e) => setText(e.target.value)} />
           <button className="round-btn" aria-label="search">⌕</button>
+          {can("md.item.manage") && (
+            <Link className="btn" style={{ textDecoration: "none", whiteSpace: "nowrap" }}
+                  to="/items/edit/new">+ {t("newDoc")}</Link>
+          )}
         </form>
         {!items ? <span className="muted">{t("loading")}</span>
           : items.length === 0 ? <span className="muted">{t("noResults")}</span>
@@ -80,7 +84,12 @@ export function Items() {
       </section>
       {picked && (
         <section className="card glass">
-          <h2 style={{ margin: 0 }}>{picked.name}</h2>
+          <div className="row">
+            <h2 style={{ margin: 0 }}>{picked.name}</h2>
+            {can("md.item.manage") && (
+              <Link className="chip-btn" to={`/items/edit/${picked.id}`}>{t("editItem")}</Link>
+            )}
+          </div>
           <span className="muted">{picked.code} · {picked.barcodes.map((b) => b.barcode).join(", ")}</span>
           <h3>{t("units")}</h3>
           <ul className="list">

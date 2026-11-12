@@ -21,8 +21,16 @@ export function TopBar() {
     <>
       <NavLink to="/" end>{t("home")}</NavLink>
       {can("pos.sale.create") && <NavLink to="/till">{t("till")}</NavLink>}
-      {can("sal.doc.read") && <NavLink to="/sales">{t("sales")}</NavLink>}
-      {can("pur.doc.read") && <NavLink to="/purchases">{t("purchases")}</NavLink>}
+      {can("sal.doc.read") && (
+        <NavLink to="/sales" className={pathname.startsWith("/parties/customer") ? "active" : undefined}>
+          {t("sales")}
+        </NavLink>
+      )}
+      {can("pur.doc.read") && (
+        <NavLink to="/purchases" className={pathname.startsWith("/parties/supplier") ? "active" : undefined}>
+          {t("purchases")}
+        </NavLink>
+      )}
       {can("fin.doc.read") && (
         <NavLink to="/finance" className={/^\/(accounts|issues)/.test(pathname) ? "active" : undefined}>
           {t("finance")}

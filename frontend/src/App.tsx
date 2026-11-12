@@ -10,6 +10,8 @@ import { DocList } from "./pages/DocList";
 import { DocForm } from "./pages/DocForm";
 import { Accounts } from "./pages/Accounts";
 import { Issues } from "./pages/Issues";
+import { PartyForm, PartyList } from "./pages/Parties";
+import { ItemForm } from "./pages/ItemForm";
 import { Till } from "./pages/Till";
 import { useCallback, useState } from "react";
 import { useOutboxSync } from "./pos/sync";
@@ -53,6 +55,9 @@ export function App() {
           <Route path="/finance" element={<DocList area="finance" />} />
           <Route path="/accounts" element={<Accounts />} />
           <Route path="/issues" element={<Issues />} />
+          <Route path="/parties/:type" element={<PartyList />} />
+          <Route path="/parties/:type/:id" element={<PartyForm />} />
+          <Route path="/items/edit/:id" element={<ItemForm />} />
           <Route path="/docs/:kind/:id" element={<DocForm />} />
           <Route path="/till" element={<Till />} />
           <Route path="*" element={<Navigate to="/" replace />} />
