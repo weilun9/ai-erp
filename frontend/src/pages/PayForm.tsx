@@ -363,6 +363,9 @@ export function PayForm({ def, id }: { def: KindDef; id: string }) {
                 {/* positive: they owe / we owe; negative: money sits on the other side */}
                 {t(Number(balance) >= 0 ? (receipt ? "customerOwes" : "weOwe")
                   : (receipt ? "customerCredit" : "supplierOwesUs"))}: {money(Math.abs(Number(balance)))}
+                {head.party && (
+                  <> · <Link to={`/accounts?type=${def.party}&party=${head.party.id}`}>{t("accounts")}</Link></>
+                )}
               </span>
             )}
           </div>

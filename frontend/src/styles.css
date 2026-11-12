@@ -303,3 +303,25 @@ select.input { appearance: auto; }
 .input.num-wide { text-align: right; }
 .open-docs summary { cursor: pointer; color: var(--ink-soft); font-size: 14px; padding: 6px 0; }
 .open-docs .list { margin-top: 8px; }
+
+/* accounts (往来账) */
+.table.doc-lines tr.picked td { background: rgba(47, 127, 193, 0.10); }
+.table.doc-lines tr.knock-row td { background: rgba(255, 255, 255, 0.55); padding: 10px 14px; }
+.knock-bar { position: sticky; top: 8px; z-index: 5; }
+.print-only { display: none; }
+@media print {
+  .scene, .topbar, .tabbar, .no-print { display: none !important; }
+  .print-only { display: block; margin-bottom: 12px; }
+  body { background: #fff; }
+  .page { padding: 0; max-width: none; }
+  .glass { background: #fff !important; box-shadow: none !important; border: 0 !important;
+           backdrop-filter: none !important; -webkit-backdrop-filter: none !important; }
+  .table th, .table td { padding: 6px 8px; }
+  a { text-decoration: none; }
+}
+.open-pair { display: grid; grid-template-columns: minmax(0, 1fr); gap: 18px; }
+@media (min-width: 1280px) { .open-pair { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); } }
+.accounts .table th, .accounts .table td { white-space: nowrap; }
+.accounts .table tr.knock-row td { white-space: normal; }
+/* eight page links: between phone and wide desktop the search box gives way (items page searches too) */
+@media (min-width: 641px) and (max-width: 1200px) { .topbar .search { display: none; } }
