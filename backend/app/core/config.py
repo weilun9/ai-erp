@@ -1,7 +1,7 @@
 from functools import lru_cache
 from pathlib import Path
 
-from pydantic import model_validator
+from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # .env lives at the repository root (one level above backend/)
@@ -21,6 +21,17 @@ class Settings(BaseSettings):
     postgres_db: str = "erp"
     postgres_host: str = "127.0.0.1"
     postgres_port: int = 5433
+    # A hosted database (Neon, on Vercel) gives one connection string instead; when it is
+    # set it wins over the POSTGRES_* pieces above.
+    database_url_env: str = Field(default="", validation_alias="DATABASE_URL")
+
+    # Public demo site: any browser may log in (no device approval), the login page offers
+    # the demo accounts, account/device/company administration is read-only, uploads are
+    # off and the AI butler answers a limited number of questions a day.
+    demo_mode: bool = False
+    demo_password: str = ""
+    demo_accounts: str = "owner:Owner,aminah:Cashier"  # username:label, comma separated
+    ai_daily_limit: int = 0  # user questions per company per 24 h; 0 = no limit
 
     jwt_secret: str = DEV_JWT_SECRET
     jwt_algorithm: str = "HS256"
@@ -81,6 +92,10 @@ class Settings(BaseSettings):
 
     @property
     def database_url(self) -> str:
+        if self.database_url_env:
+            # postgres://... or postgresql://... -> SQLAlchemy with the psycopg 3 driver
+            rest = self.database_url_env.split("://", 1)[1]
+            return f"postgresql+psycopg://{rest}"
         return (
             f"postgresql+psycopg://{self.postgres_user}:{self.postgres_password}"
             f"@{self.postgres_host}:{self.postgres_port}/{self.postgres_db}"

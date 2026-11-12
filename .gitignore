@@ -33,3 +33,6 @@ Thumbs.db
 data/
 backend/var/
 *.log
+
+# Vercel CLI link data
+.vercel/

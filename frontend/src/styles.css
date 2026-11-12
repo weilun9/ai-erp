@@ -361,3 +361,9 @@ select.input { appearance: auto; }
 }
 .quick-actions a:hover { background: #fff; }
 .quick-actions a.ai { background: #1d2733; color: #fff; }
+
+/* login: public demo accounts */
+.demo-box {
+  display: flex; flex-direction: column; gap: 8px; padding: 14px 16px; border-radius: 18px;
+  background: var(--green-soft); border: 1px solid rgba(63, 143, 58, 0.25);
+}

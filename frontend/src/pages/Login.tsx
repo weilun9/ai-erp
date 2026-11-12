@@ -1,6 +1,14 @@
-import { useState } from "react";
-import { ApiError, login } from "../api";
+import { useEffect, useState } from "react";
+import { ApiError, api, login } from "../api";
 import { useSession } from "../session";
+
+// What the server says about itself before anyone is logged in. On the public demo site
+// it lists the demo accounts, so a visitor gets in with one click.
+interface DemoInfo {
+  demo: boolean;
+  accounts?: { username: string; label: string }[];
+  password?: string;
+}
 
 export function Login() {
   const { t, reload } = useSession();
@@ -9,13 +17,17 @@ export function Login() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [device, setDevice] = useState<string | null>(null);
+  const [demo, setDemo] = useState<DemoInfo | null>(null);
 
-  async function submit(e: React.FormEvent) {
-    e.preventDefault();
+  useEffect(() => {
+    api<DemoInfo>("/public/demo", { timeoutMs: 8000 }).then(setDemo).catch(() => setDemo(null));
+  }, []);
+
+  async function enter(user: string, pass: string) {
     setBusy(true);
     setError(null);
     try {
-      await login(username, password);
+      await login(user, pass);
       setDevice(null);
       await reload();
     } catch (err) {
@@ -33,7 +45,7 @@ export function Login() {
 
   return (
     <div className="center">
-      <form className="login glass" onSubmit={submit}>
+      <form className="login glass" onSubmit={(e) => { e.preventDefault(); enter(username, password); }}>
         <div className="row">
           <div className="brand">
             <div className="logo">AI</div>
@@ -52,6 +64,20 @@ export function Login() {
           </>
         ) : (
           <>
+            {demo?.demo && demo.accounts && demo.password && (
+              <div className="demo-box">
+                <strong>{t("demoTitle")}</strong>
+                <span className="muted">{t("demoBody")}</span>
+                <div className="row" style={{ justifyContent: "flex-start", flexWrap: "wrap", gap: 8 }}>
+                  {demo.accounts.map((a) => (
+                    <button key={a.username} type="button" className="btn green" disabled={busy}
+                            onClick={() => enter(a.username, demo.password as string)}>
+                      {t("enterAs")} {a.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
             <div className="field">
               <label htmlFor="u">{t("username")}</label>
               <input id="u" className="input" value={username} autoComplete="username"

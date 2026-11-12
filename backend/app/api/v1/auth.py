@@ -101,6 +101,8 @@ def login(
         user_agent=request.headers.get("user-agent"),
         ip=request.client.host if request.client else None,
     )
+    if not device.is_authorized and get_settings().demo_mode:
+        device.is_authorized = True  # public demo: visitors cannot ask an owner to approve them
     if not device.is_authorized:
         db.commit()  # keep the pending device so the owner can find and approve it
         err = DeviceNotAuthorized(

@@ -1,4 +1,5 @@
-from fastapi import APIRouter, FastAPI
+from fastapi import APIRouter, FastAPI, Request
+from fastapi.responses import JSONResponse
 
 from app.api.v1 import (
     ai,
@@ -24,6 +25,11 @@ from app.core.config import get_settings
 from app.core.errors import install_error_handlers
 from app.core.request_context import RequestIdMiddleware
 
+# Path prefixes that only answer GET on the public demo.
+DEMO_READ_ONLY = tuple(
+    f"/api/v1/{p}" for p in ("users", "tags", "devices", "company", "kb/documents", "inbox")
+)
+
 
 def create_app() -> FastAPI:
     settings = get_settings()
@@ -41,7 +47,41 @@ def create_app() -> FastAPI:
 
     app.include_router(health.router)
 
+    @app.middleware("http")
+    async def demo_guard(request: Request, call_next):
+        """Public demo: visitors share the demo accounts, so nobody may change passwords,
+        users, tags, devices or company settings, or upload files."""
+        if (
+            get_settings().demo_mode
+            and request.method not in ("GET", "HEAD", "OPTIONS")
+            and request.url.path.startswith(DEMO_READ_ONLY)
+        ):
+            return JSONResponse(
+                status_code=403,
+                content={
+                    "error": {
+                        "code": "DEMO_READ_ONLY",
+                        "message": "This is switched off on the public demo",
+                        "details": {},
+                    }
+                },
+            )
+        return await call_next(request)
+
     v1 = APIRouter(prefix="/api/v1")
+
+    @v1.get("/public/demo", tags=["public"])
+    def demo_info() -> dict:
+        """What the login page needs before anyone is logged in."""
+        s = get_settings()
+        if not s.demo_mode:
+            return {"demo": False}
+        accounts = [
+            {"username": u.strip(), "label": label.strip()}
+            for u, _, label in (a.partition(":") for a in s.demo_accounts.split(",") if a.strip())
+        ]
+        return {"demo": True, "accounts": accounts, "password": s.demo_password}
+
     v1.include_router(auth.router)
     v1.include_router(me.router)
     v1.include_router(company.router)

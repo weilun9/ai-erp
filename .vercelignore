@@ -1,0 +1,10 @@
+.env
+.env.*
+*.md
+*.docx
+backend/.venv
+backend/var
+backend/tests
+backend/**/__pycache__
+frontend/node_modules
+frontend/dist

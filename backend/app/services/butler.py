@@ -15,7 +15,7 @@ import uuid
 from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
@@ -218,6 +218,29 @@ def _propose(db, p, c, name, result) -> dict[str, Any]:
     }
 
 
+def _check_daily_limit(db: Session, p: Principal) -> None:
+    """AI_DAILY_LIMIT caps the questions a company asks in 24 hours (the public demo runs on
+    the owner's own model key)."""
+    cap = get_settings().ai_daily_limit
+    if cap <= 0:
+        return
+    asked = db.scalar(
+        select(func.count())
+        .select_from(Message)
+        .join(Conversation, Conversation.id == Message.conversation_id)
+        .where(
+            Conversation.company_id == p.company_id,
+            Message.role == "user",
+            Message.created_at > datetime.now(UTC) - timedelta(hours=24),
+        )
+    )
+    if asked >= cap:
+        raise BusinessRule(
+            "The AI butler has answered its limit of questions for today; try again tomorrow",
+            {"daily_limit": cap},
+        )
+
+
 def chat(db: Session, p: Principal, conversation_id: uuid.UUID, text: str) -> dict[str, Any]:
     c = conversation(db, p, conversation_id)
     model = get_chat_model()
@@ -226,6 +249,7 @@ def chat(db: Session, p: Principal, conversation_id: uuid.UUID, text: str) -> di
             "The AI butler is not set up",
             {"settings": ["LLM_BASE_URL", "LLM_API_KEY", "LLM_MODEL"]},
         )
+    _check_daily_limit(db, p)
     limit = get_settings().llm_max_tool_calls
     first = _add(db, c, "user", text)
     if c.title == "New chat":

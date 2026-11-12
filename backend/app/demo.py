@@ -15,7 +15,12 @@ import warnings
 from datetime import date, timedelta
 
 DEMO_DB = "erp_demo"
-os.environ["POSTGRES_DB"] = DEMO_DB  # before any app import: settings are cached
+# DATABASE_URL set = a hosted database (the public demo site). It has one database, so
+# instead of drop-and-create the demo empties the application's schemas; that only
+# happens when DEMO_RESET_REMOTE=1 says so.
+REMOTE = bool(os.environ.get("DATABASE_URL"))
+if not REMOTE:
+    os.environ["POSTGRES_DB"] = DEMO_DB  # before any app import: settings are cached
 os.environ.setdefault("APP_ENV", "dev")
 warnings.filterwarnings("ignore", category=DeprecationWarning)
 
@@ -27,7 +32,7 @@ from alembic.config import Config  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
 
 from app.core.config import get_settings  # noqa: E402
-from app.db.session import SessionLocal  # noqa: E402
+from app.db.session import SessionLocal, engine  # noqa: E402
 from app.main import app  # noqa: E402
 from app.models import Device  # noqa: E402
 from app.services.seed import bootstrap  # noqa: E402
@@ -36,6 +41,7 @@ API = "/api/v1"
 PASSWORD = os.environ.get("DEMO_PASSWORD", "demo-password-2026")
 TODAY = date.today()
 BACKEND = Path(__file__).resolve().parents[1]
+SCHEMAS = ("core", "md", "pur", "sal", "inv", "fin", "ai", "audit")
 
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8")
@@ -67,6 +73,16 @@ def check(resp, *ok: int):
 
 def fresh_database() -> None:
     s = get_settings()
+    if REMOTE:
+        if os.environ.get("DEMO_RESET_REMOTE") != "1":
+            raise SystemExit(
+                "DATABASE_URL is set: run with DEMO_RESET_REMOTE=1 to wipe that database"
+            )
+        with engine.begin() as conn:
+            conn.exec_driver_sql(f"DROP SCHEMA IF EXISTS {', '.join(SCHEMAS)} CASCADE")
+            conn.exec_driver_sql("DROP TABLE IF EXISTS public.alembic_version")
+        _migrate_and_bootstrap()
+        return
     assert s.postgres_db == DEMO_DB  # never touch any other database
     with psycopg.connect(
         host=s.postgres_host,
@@ -78,6 +94,10 @@ def fresh_database() -> None:
     ) as conn:
         conn.execute(f'DROP DATABASE IF EXISTS "{DEMO_DB}" WITH (FORCE)')
         conn.execute(f'CREATE DATABASE "{DEMO_DB}"')
+    _migrate_and_bootstrap()
+
+
+def _migrate_and_bootstrap() -> None:
     cfg = Config()  # no ini file: keeps alembic's log lines out of the demo output
     cfg.set_main_option("script_location", str(BACKEND / "alembic"))
     command.upgrade(cfg, "head")

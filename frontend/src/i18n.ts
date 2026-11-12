@@ -6,6 +6,9 @@ const en = {
   username: "Username",
   password: "Password",
   signingIn: "Logging in…",
+  demoTitle: "Public demo",
+  demoBody: "Sample data for a Malaysian grocery shop. E-invoices go to a simulated LHDN, nothing here is real, and the data may be reset at any time.",
+  enterAs: "Enter as",
   badLogin: "Wrong username or password",
   deviceTitle: "This computer is not authorized yet",
   deviceBody: "For safety only computers the owner approved can log in. Give the owner this " +
