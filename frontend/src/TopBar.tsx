@@ -1,24 +1,35 @@
-import { useState } from "react";
-import { NavLink, useNavigate } from "react-router-dom";
+import { useEffect, useRef, useState } from "react";
+import { Link, NavLink, useLocation, useNavigate } from "react-router-dom";
 import { useSession } from "./session";
 import { useWaiting } from "./pos/sync";
 
 export function TopBar() {
-  const { me, t, lang, setLang, can, logout, offline } = useSession();
+  const { me, t, can, logout, offline } = useSession();
   const waiting = useWaiting();
   const nav = useNavigate();
   const [q, setQ] = useState("");
   const initials = (me?.display_name ?? "?").slice(0, 1).toUpperCase();
+  const { pathname } = useLocation();
+  const tabbar = useRef<HTMLElement>(null);
+  // phones: the tab bar scrolls sideways; keep the page you are on visible in it
+  useEffect(() => {
+    const on = tabbar.current?.querySelector<HTMLElement>("a.active");
+    if (on) void on.scrollIntoView({ inline: "center", block: "nearest" });
+  }, [pathname]);
 
   const links = (
     <>
       <NavLink to="/" end>{t("home")}</NavLink>
       {can("pos.sale.create") && <NavLink to="/till">{t("till")}</NavLink>}
-      {can("ai.chat.use") && <NavLink to="/butler">{t("butler")}</NavLink>}
-      {can("md.item.read") && <NavLink to="/items">{t("items")}</NavLink>}
       {can("sal.doc.read") && <NavLink to="/sales">{t("sales")}</NavLink>}
       {can("pur.doc.read") && <NavLink to="/purchases">{t("purchases")}</NavLink>}
-      {can("fin.doc.read") && <NavLink to="/finance">{t("finance")}</NavLink>}
+      {can("fin.doc.read") && (
+        <NavLink to="/finance" className={pathname.startsWith("/accounts") ? "active" : undefined}>
+          {t("finance")}
+        </NavLink>
+      )}
+      {can("md.item.read") && <NavLink to="/items">{t("items")}</NavLink>}
+      {can("ai.chat.use") && <NavLink to="/butler">{t("butler")}</NavLink>}
     </>
   );
 
@@ -26,10 +37,8 @@ export function TopBar() {
     <>
     <header className="topbar">
       <div className="brand">
-        <div className="toggle" role="group" aria-label="Language">
-          <button className={lang === "zh" ? "on" : ""} onClick={() => setLang("zh")}>中</button>
-          <button className={lang === "en" ? "on" : ""} onClick={() => setLang("en")}>EN</button>
-        </div>
+        <Link to="/" className="logo" aria-label={t("appName")}>AI</Link>
+        <span className="brand-name">{t("appName")}</span>
         <nav className="nav">{links}</nav>
       </div>
       <form
@@ -52,7 +61,7 @@ export function TopBar() {
         <div className="avatar" aria-hidden>{initials}</div>
       </div>
     </header>
-    <nav className="tabbar">{links}</nav>
+    <nav className="tabbar" ref={tabbar}>{links}</nav>
     </>
   );
 }

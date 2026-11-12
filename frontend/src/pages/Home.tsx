@@ -70,7 +70,7 @@ interface Summary {
 }
 
 export function Home() {
-  const { me, t, can, lang, offline } = useSession();
+  const { me, t, can, offline } = useSession();
   const nav = useNavigate();
   const [ask, setAsk] = useState("");
 
@@ -115,7 +115,7 @@ export function Home() {
     <>
       <div className="greeting">
         <h1>{t("hello")}, {me?.display_name} {greet}</h1>
-        <p>{today.toLocaleDateString(lang === "zh" ? "zh-CN" : "en-MY", { weekday: "long", day: "numeric", month: "long" })}</p>
+        <p>{today.toLocaleDateString("en-MY", { weekday: "long", day: "numeric", month: "long" })}</p>
       </div>
       {offline && (
         <section className="card glass" style={{ minHeight: 0, marginBottom: 18 }}>
@@ -125,13 +125,16 @@ export function Home() {
         </section>
       )}
       <div className="grid">
-        {can("ai.chat.use") && (
-          <section className="card glass new-card"
-                   onClick={() => nav("/butler?ask=" + encodeURIComponent(t("askPlaceholder")))}>
-            <div className="plus">+</div>
-            <strong>{t("quickNew")}</strong>
-            <span className="muted">{t("quickNewHint")}</span>
-          </section>
+        {(can("sal.doc.create") || can("pur.doc.create") || can("fin.doc.create") || can("ai.chat.use")) && (
+          <Card title={t("quickNew")}>
+            <div className="quick-actions">
+              {can("sal.doc.create") && <Link to="/docs/sales-invoice/new">+ {t("sales-invoice")}</Link>}
+              {can("pur.doc.create") && <Link to="/docs/grn/new">+ {t("grn")}</Link>}
+              {can("fin.doc.create") && <Link to="/docs/receipt/new">+ {t("receipt")}</Link>}
+              {can("fin.doc.create") && <Link to="/docs/supplier-payment/new">+ {t("supplier-payment")}</Link>}
+              {can("ai.chat.use") && <Link to="/butler" className="ai">✦ {t("quickNewHint")}</Link>}
+            </div>
+          </Card>
         )}
 
         {can("report.run") && can("sal.doc.read") && (
@@ -195,7 +198,7 @@ export function Home() {
               <button className="round-btn" aria-label={t("send")}>➤</button>
             </form>
             <div className="tools">
-              {["HQ 还有多少 Milo？", "Kedai Ah Seng 欠多少？", "顾客没有收据可以退货吗？"].map((s) => (
+              {["How much Milo is left at HQ?", "How much does Kedai Ah Seng owe?", "Can a customer return goods without a receipt?"].map((s) => (
                 <span key={s} style={{ cursor: "pointer" }}
                       onClick={() => nav("/butler?ask=" + encodeURIComponent(s))}>{s}</span>
               ))}
@@ -244,7 +247,10 @@ export function Home() {
                 <ul className="list">
                   {recent.data.items.map((d) => (
                     <li key={d.id}>
-                      <span>{d.doc_no ?? "—"} <span className="muted">{d.doc_date}</span></span>
+                      <span>
+                        <Link to={`/docs/sales-invoice/${d.id}`}>{d.doc_no ?? "—"}</Link>{" "}
+                        <span className="muted">{d.doc_date}</span>
+                      </span>
                       <span>{money(d.total)}</span>
                     </li>
                   ))}

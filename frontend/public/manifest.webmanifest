@@ -1,5 +1,5 @@
 {
-  "name": "AI 管家进销存",
+  "name": "AI Butler ERP",
   "short_name": "AI ERP",
   "description": "Inventory, sales, POS and AI butler for a Malaysian shop",
   "start_url": "/till",

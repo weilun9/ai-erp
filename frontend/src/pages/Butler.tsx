@@ -37,18 +37,18 @@ function Markdown({ text }: { text: string }) {
 }
 
 const TOOL_LABEL: Record<string, string> = {
-  search_items: "商品 items",
-  get_stock_balance: "库存 stock",
-  find_parties: "客户/供应商 parties",
-  list_documents: "单据 documents",
-  get_document: "单据 document",
-  get_open_items: "欠款 owed",
-  run_report: "报表 report",
-  list_issues: "问题单 issues",
-  list_stores: "门市 stores",
-  get_my_shift: "班次 shift",
-  search_knowledge: "知识库 knowledge",
-  draft_document: "草稿 draft",
+  search_items: "items",
+  get_stock_balance: "stock",
+  find_parties: "parties",
+  list_documents: "documents",
+  get_document: "document",
+  get_open_items: "owed",
+  run_report: "report",
+  list_issues: "issues",
+  list_stores: "stores",
+  get_my_shift: "shift",
+  search_knowledge: "knowledge",
+  draft_document: "draft",
 };
 
 function ActionCard({ a, onDone }: { a: Action; onDone: (a: Action) => void }) {

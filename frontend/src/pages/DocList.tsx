@@ -49,29 +49,24 @@ export function DocList({ area }: { area: Area }) {
   const showAdvance = area === "finance";
   return (
     <section className="card glass">
-      <div className="row" style={{ alignItems: "flex-start" }}>
+      <div className="list-head">
         <div className="tabs">
           {kinds.map((k) => (
             <button key={k} className={k === kind ? "on" : ""}
-                    onClick={() => setParams({ kind: k }, { replace: true })}>{t(k)}</button>
+                    onClick={() => setParams({ kind: k }, { replace: true })}>{k === "grn" ? t(k) : `${t(k)}s`}</button>
           ))}
+          {area === "finance" && <Link className="tab-link" to="/accounts">{t("accounts")}</Link>}
         </div>
-        <div className="row" style={{ gap: 8 }}>
-        {area === "finance" && (
-          <Link className="btn ghost" style={{ textDecoration: "none", whiteSpace: "nowrap" }}
-                to="/accounts">{t("accounts")}</Link>
-        )}
         {can(`${def.perm}.doc.create`) && (
           <Link className="btn" style={{ textDecoration: "none", whiteSpace: "nowrap" }}
                 to={`/docs/${kind}/new`}>+ {t("newDoc")}</Link>
         )}
-        </div>
       </div>
       {!docs ? <span className="muted">{t("loading")}</span>
         : docs.length === 0 ? <span className="muted">{t("noResults")}</span>
         : (
           <div className="scroll-x">
-            <table className="table">
+            <table className="table one-line">
               <thead>
                 <tr>
                   <th>{t("docNo")}</th><th>{t("date")}</th>

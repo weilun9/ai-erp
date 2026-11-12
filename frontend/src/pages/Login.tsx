@@ -3,7 +3,7 @@ import { ApiError, login } from "../api";
 import { useSession } from "../session";
 
 export function Login() {
-  const { t, reload, lang, setLang } = useSession();
+  const { t, reload } = useSession();
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
@@ -38,12 +38,6 @@ export function Login() {
           <div className="brand">
             <div className="logo">AI</div>
             <h1>{t("appName")}</h1>
-          </div>
-          <div className="toggle">
-            <button type="button" className={lang === "zh" ? "on" : ""}
-                    onClick={() => setLang("zh")}>中</button>
-            <button type="button" className={lang === "en" ? "on" : ""}
-                    onClick={() => setLang("en")}>EN</button>
           </div>
         </div>
         {device ? (

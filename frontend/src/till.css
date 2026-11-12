@@ -78,12 +78,14 @@
 .r-row { display: flex; justify-content: space-between; gap: 8px; }
 .r-center { text-align: center; }
 .r-total { font-weight: 700; font-size: 14px; }
+/* Printing a till receipt: only while one is on screen. This sheet is loaded app-wide, so an
+   unscoped rule here would blank every other page's printout (it did, for statements). */
 @media print {
-  body * { visibility: hidden !important; }
+  body:has(.receipt-print) * { visibility: hidden !important; }
   .receipt-print, .receipt-print * { visibility: visible !important; }
-  .receipt-print { position: absolute; left: 0; top: 0; width: 72mm; }
+  .receipt-print { position: absolute; left: 0; top: 0; width: 72mm; page: receipt; }
   .receipt { border-radius: 0; padding: 0; }
-  @page { size: 80mm auto; margin: 4mm; }
+  @page receipt { size: 80mm auto; margin: 4mm; }
 }
 
 .line-edit {

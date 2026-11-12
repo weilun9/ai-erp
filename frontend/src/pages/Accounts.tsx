@@ -7,7 +7,7 @@ import { Picker } from "../docs/Picker";
 import { errorText, isNum, round2, today } from "../docs/shared";
 import type { Key } from "../i18n";
 
-// 往来账: one customer's or supplier's account.
+// Accounts: one customer's or supplier's account.
 // - open items: every posted document with something left on it; pick one debit (invoice,
 //   GRN) and one credit (receipt, payment, CN, fee) and knock them off against each other
 // - statement: opening balance, every posted document in the period, running balance

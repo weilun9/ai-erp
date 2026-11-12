@@ -3,16 +3,14 @@ import type { ReactNode } from "react";
 import { api, logout as apiLogout, refreshSession } from "./api";
 import type { Me } from "./api";
 import { translator } from "./i18n";
-import type { Lang, T } from "./i18n";
+import type { T } from "./i18n";
 
 interface Session {
   me: Me | null;
   ready: boolean;
   /** No connection: the profile is the one saved at the last login on this computer. */
   offline: boolean;
-  lang: Lang;
   t: T;
-  setLang: (l: Lang) => void;
   can: (perm: string) => boolean;
   reload: () => Promise<void>;
   logout: () => Promise<void>;
@@ -20,15 +18,7 @@ interface Session {
 
 const Ctx = createContext<Session | null>(null);
 const ME_KEY = "me-cache";
-
-function savedLang(): Lang | null {
-  try {
-    const v = localStorage.getItem("lang");
-    return v === "zh" || v === "en" ? v : null;
-  } catch {
-    return null;
-  }
-}
+const t = translator();
 
 function cachedMe(): Me | null {
   try {
@@ -51,7 +41,6 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   const [me, setMe] = useState<Me | null>(null);
   const [ready, setReady] = useState(false);
   const [offline, setOffline] = useState(false);
-  const [lang, setLangState] = useState<Lang>(savedLang() ?? "zh");
 
   const reload = useCallback(async () => {
     try {
@@ -59,7 +48,6 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       setMe(m);
       saveMe(m);
       setOffline(false);
-      if (!savedLang() && (m.language === "en" || m.language === "zh")) setLangState(m.language);
     } catch {
       setMe(null);
     }
@@ -101,16 +89,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       me,
       ready,
       offline,
-      lang,
-      t: translator(lang),
-      setLang: (l) => {
-        setLangState(l);
-        try {
-          localStorage.setItem("lang", l);
-        } catch {
-          /* private mode: fine, just not remembered */
-        }
-      },
+      t,
       can: (perm) => !!me?.permissions.includes(perm),
       reload,
       logout: async () => {
@@ -119,7 +98,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         setMe(null);
       },
     }),
-    [me, ready, offline, lang, reload],
+    [me, ready, offline, reload],
   );
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }

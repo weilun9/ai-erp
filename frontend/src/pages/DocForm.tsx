@@ -553,7 +553,7 @@ function Form({ def, id }: { def: KindDef; id: string }) {
             {doc && def.converts.filter((c) => c.from === status).map((c) =>
               can(`${def.perm}.doc.create`) && (
                 <button key={c.target} className="btn ghost" disabled={busy}
-                        onClick={() => convert(c.target)}>{t("convertTo")} {t(c.target)}</button>
+                        onClick={() => convert(c.target)}>{t("convertTo")} {t(c.target).toLowerCase()}</button>
               ))}
             {doc && (status === "SAVED" || status === "POSTED") && can(`${def.perm}.doc.void`) && (
               <button className="btn ghost danger" disabled={busy}

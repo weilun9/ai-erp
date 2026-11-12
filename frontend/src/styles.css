@@ -15,7 +15,7 @@
   --red: #c2413b;
   --red-soft: #f9dfdc;
   --radius: 26px;
-  font-family: "Inter", "Noto Sans SC", system-ui, sans-serif;
+  font-family: "Inter", system-ui, sans-serif;
   color: var(--ink);
   -webkit-font-smoothing: antialiased;
 }
@@ -76,9 +76,12 @@ a { color: inherit; }
 }
 .brand { display: flex; align-items: center; gap: 12px; }
 .logo {
-  width: 40px; height: 40px; border-radius: 14px; display: grid; place-items: center;
+  width: 40px; height: 40px; border-radius: 14px; display: grid; place-items: center; flex: none;
   background: linear-gradient(135deg, #5fb85a, #2f7fc1); color: #fff; font-weight: 700;
+  text-decoration: none;
 }
+.brand-name { display: none; font-weight: 700; letter-spacing: -0.01em; }
+@media (max-width: 960px) { .brand-name { display: inline; } }
 .toggle {
   display: inline-flex; padding: 4px; gap: 2px; background: var(--glass-strong);
   border: 1px solid var(--glass-line); border-radius: 999px; box-shadow: var(--shadow);
@@ -119,10 +122,11 @@ a { color: inherit; }
   grid-template-columns: repeat(4, minmax(0, 1fr));
 }
 @media (max-width: 1100px) { .grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
-@media (max-width: 640px) {
-  .grid { grid-template-columns: 1fr; }
-  .topbar { grid-template-columns: 1fr auto; }
-  .search { grid-column: 1 / -1; grid-row: 2; }
+@media (max-width: 640px) { .grid { grid-template-columns: 1fr; } }
+@media (max-width: 960px) {
+  /* two rows here: let it scroll away instead of covering a fifth of a phone screen */
+  .topbar { grid-template-columns: 1fr auto; position: static; }
+  .search { grid-column: 1 / -1; grid-row: 2; width: 100%; }
   .nav { display: none; }
 }
 .span-2 { grid-column: span 2; }
@@ -198,18 +202,41 @@ a { color: inherit; }
 .table tr.click { cursor: pointer; }
 .table tr.click:hover td { background: rgba(255, 255, 255, 0.5); }
 .num { text-align: right; font-variant-numeric: tabular-nums; }
-.tabs { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 14px; }
+.tabs { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 14px; align-items: center; }
 .tabs button {
   border: 0; padding: 8px 14px; border-radius: 999px; cursor: pointer; font-weight: 500;
   background: var(--glass); color: var(--ink-soft);
 }
 .tabs button.on { background: #1d2733; color: #fff; }
+.tabs button, .tab-link { white-space: nowrap; }
+.tab-link {
+  padding: 8px 14px; border-radius: 999px; font-weight: 500; font-size: 14px; text-decoration: none;
+  color: var(--sky); border: 1px dashed rgba(47, 127, 193, 0.45);
+}
+.tab-link::after { content: " →"; }
+.list-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
+.list-head .tabs { min-width: 0; }
+.table th, .table.one-line td { white-space: nowrap; }
+@media (max-width: 640px) {
+  /* one row of tabs that scrolls sideways; the New button sits above it */
+  .list-head { flex-direction: column-reverse; align-items: stretch; }
+  .list-head > .btn { align-self: flex-end; }
+  .list-head .tabs, .accounts .tabs { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; margin-bottom: 4px; }
+}
 .scroll-x { overflow-x: auto; }
 
 /* --- butler ----------------------------------------------------------------------------- */
-.butler { display: grid; grid-template-columns: 260px 1fr; gap: 18px; min-height: 72vh; }
-@media (max-width: 900px) { .butler { grid-template-columns: 1fr; } .chats { display: none; } }
-.chats { padding: 16px; display: flex; flex-direction: column; gap: 8px; }
+.butler { display: grid; grid-template-columns: 260px minmax(0, 1fr); gap: 18px; min-height: 72vh; }
+.chats { padding: 16px; display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.chats button { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+@media (max-width: 900px) {
+  /* one column: earlier chats become a strip that scrolls sideways above the conversation */
+  .butler { grid-template-columns: minmax(0, 1fr); min-height: 0; }
+  .chats { flex-direction: row; align-items: center; overflow-x: auto; scrollbar-width: none; padding: 10px; }
+  .chats > .muted { display: none; }
+  .chats button { flex: none; max-width: 220px; }
+  .chat { min-height: 62vh; }
+}
 .chats button {
   text-align: left; border: 0; background: transparent; padding: 10px 12px; border-radius: 14px;
   cursor: pointer; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
@@ -251,17 +278,17 @@ a { color: inherit; }
 /* phones: the page links move to a bottom tab bar. It sits outside the top bar on purpose:
    the top bar's backdrop-filter would make it the containing block of a fixed child. */
 .tabbar { display: none; }
-@media (max-width: 640px) {
+@media (max-width: 960px) {
   .tabbar {
     display: flex; position: fixed; left: 12px; right: 12px; bottom: 12px; z-index: 20;
     justify-content: space-between; padding: 6px; border-radius: 999px;
-    overflow-x: auto; scrollbar-width: none;  /* six links: scroll sideways, never wrap */
+    overflow-x: auto; scrollbar-width: none;  /* scroll sideways, never wrap */
     background: var(--glass-strong); border: 1px solid var(--glass-line); box-shadow: var(--shadow);
     backdrop-filter: blur(18px); -webkit-backdrop-filter: blur(18px);
   }
   .tabbar a {
-    text-decoration: none; padding: 8px 9px; border-radius: 999px; font-size: 13px;
-    color: var(--ink-soft); font-weight: 500; white-space: nowrap;
+    text-decoration: none; padding: 8px 12px; border-radius: 999px; font-size: 13px;
+    color: var(--ink-soft); font-weight: 500; white-space: nowrap; flex: 1 0 auto; text-align: center;
   }
   .tabbar a.active { background: #1d2733; color: #fff; }
   .page { padding-bottom: 96px; }
@@ -304,7 +331,7 @@ select.input { appearance: auto; }
 .open-docs summary { cursor: pointer; color: var(--ink-soft); font-size: 14px; padding: 6px 0; }
 .open-docs .list { margin-top: 8px; }
 
-/* accounts (往来账) */
+/* accounts */
 .table.doc-lines tr.picked td { background: rgba(47, 127, 193, 0.10); }
 .table.doc-lines tr.knock-row td { background: rgba(255, 255, 255, 0.55); padding: 10px 14px; }
 .knock-bar { position: sticky; top: 8px; z-index: 5; }
@@ -323,5 +350,14 @@ select.input { appearance: auto; }
 @media (min-width: 1280px) { .open-pair { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); } }
 .accounts .table th, .accounts .table td { white-space: nowrap; }
 .accounts .table tr.knock-row td { white-space: normal; }
-/* eight page links: between phone and wide desktop the search box gives way (items page searches too) */
-@media (min-width: 641px) and (max-width: 1200px) { .topbar .search { display: none; } }
+/* seven page links: on a narrow desktop the search box gives way (the Items page searches too) */
+@media (min-width: 961px) and (max-width: 1240px) { .topbar .search { display: none; } }
+
+/* home: quick actions */
+.quick-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.quick-actions a {
+  text-decoration: none; padding: 8px 14px; border-radius: 999px; font-size: 14px; font-weight: 500;
+  background: var(--glass-strong); box-shadow: var(--shadow); white-space: nowrap;
+}
+.quick-actions a:hover { background: #fff; }
+.quick-actions a.ai { background: #1d2733; color: #fff; }

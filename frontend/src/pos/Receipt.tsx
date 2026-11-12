@@ -21,7 +21,7 @@ export function Receipt({ r, shop }: { r: ReceiptData; shop: string }) {
   return (
     <div className="receipt">
       <div className="r-center"><strong>{shop}</strong></div>
-      <div className="r-center">{r.kind === "RETURN" ? "REFUND / 退款" : "RECEIPT / 收据"}</div>
+      <div className="r-center">{r.kind === "RETURN" ? "REFUND" : "RECEIPT"}</div>
       <div className="r-row"><span>{r.receipt_no}</span>
         <span>{new Date(r.sold_at).toLocaleString("en-MY")}</span></div>
       <div className="r-row"><span>Cashier</span><span>{r.cashier}</span></div>
@@ -47,7 +47,7 @@ export function Receipt({ r, shop }: { r: ReceiptData; shop: string }) {
         <div className="r-row"><span>Change</span><span>{money(r.change)}</span></div>
       )}
       {r.offline && <div className="r-center">* saved offline, uploading when online *</div>}
-      <div className="r-center" style={{ marginTop: 8 }}>Thank you · Terima kasih · 谢谢</div>
+      <div className="r-center" style={{ marginTop: 8 }}>Thank you</div>
     </div>
   );
 }
