@@ -2,6 +2,12 @@
 import { ApiError } from "../api";
 import type { T } from "../i18n";
 
+// where each document type code opens (fees have no screen of their own)
+export const DOC_ROUTE: Record<string, string> = {
+  INV: "sales-invoice", CN: "customer-cn", OR: "receipt",
+  GRN: "grn", SCN: "supplier-cn", PV: "supplier-payment",
+};
+
 export const today = () => new Date().toLocaleDateString("en-CA");  // YYYY-MM-DD, local
 export const round2 = (x: number) => Math.round(x * 100) / 100;
 export const isNum = (s: string) => s.trim() !== "" && Number.isFinite(Number(s));

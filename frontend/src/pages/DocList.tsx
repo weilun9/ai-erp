@@ -56,6 +56,9 @@ export function DocList({ area }: { area: Area }) {
                     onClick={() => setParams({ kind: k }, { replace: true })}>{k === "grn" ? t(k) : `${t(k)}s`}</button>
           ))}
           {area === "finance" && <Link className="tab-link" to="/accounts">{t("accounts")}</Link>}
+          {area === "finance" && can("core.issue.read") && (
+            <Link className="tab-link" to="/issues">{t("issues")}</Link>
+          )}
         </div>
         {can(`${def.perm}.doc.create`) && (
           <Link className="btn" style={{ textDecoration: "none", whiteSpace: "nowrap" }}

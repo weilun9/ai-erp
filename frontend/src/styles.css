@@ -103,6 +103,7 @@ a { color: inherit; }
 }
 .nav a.active { background: var(--glass-strong); color: var(--ink); box-shadow: var(--shadow); }
 .user {
+  justify-self: end;  /* with the search box hidden it would stretch across the middle column */
   display: flex; align-items: center; gap: 8px; padding: 6px 6px 6px 14px;
   background: var(--glass-strong);
 }
@@ -367,3 +368,12 @@ select.input { appearance: auto; }
   display: flex; flex-direction: column; gap: 8px; padding: 14px 16px; border-radius: 18px;
   background: var(--green-soft); border: 1px solid rgba(63, 143, 58, 0.25);
 }
+
+/* problem documents */
+.issue .btn { text-decoration: none; }
+.facts { display: flex; flex-wrap: wrap; gap: 6px 22px; margin: 0; font-size: 14px; }
+.facts div { display: flex; gap: 6px; }
+.facts dt { color: var(--ink-faint); }
+.facts dd { margin: 0; font-variant-numeric: tabular-nums; }
+.advice { background: rgba(255, 255, 255, 0.6); border-left: 3px solid var(--sky); padding: 8px 12px;
+  border-radius: 10px; font-size: 14px; }

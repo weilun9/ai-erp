@@ -256,6 +256,17 @@ const en = {
   balanceCol: "Balance",
   openingBalance: "Opening balance",
   closingBalance: "Closing balance",
+  issuesIntro: "What the system could not reconcile by itself. Sort each one out, then close it with a note.",
+  issueOPEN: "Open",
+  issueRESOLVED: "Resolved",
+  issueCANCELLED: "Cancelled",
+  openDoc: "Open",
+  markResolved: "Mark resolved",
+  resolutionHint: "How was it settled? (3+ characters)",
+  adviceMISSING_INVOICE: "The supplier was paid for an invoice that is not in the system. Find the paper and enter it as goods received with this supplier invoice number; the payment's advance can then be knocked off against it in Accounts.",
+  adviceMISSING_CN: "The supplier deducted a credit note that is not in the system. Enter the supplier credit note, then knock it off in Accounts.",
+  adviceDOC_NOT_READY: "The document exists but is not posted or not confirmed yet. Post it (or confirm the credit note), then knock it off in Accounts.",
+  adviceAMOUNT_MISMATCH: "The amount on the payment advice differs from our document. Check with the supplier, then correct the document or record the difference.",
 };
 
 export type Key = keyof typeof en;

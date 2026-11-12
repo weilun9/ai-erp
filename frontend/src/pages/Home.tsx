@@ -208,8 +208,11 @@ export function Home() {
 
         {can("core.issue.read") && (
           <Card title={t("issues")}
-                extra={issues.data && issues.data.length > 0 &&
-                  <span className="badge red">{issues.data.length}</span>}>
+                extra={<span className="row" style={{ gap: 6 }}>
+                  {issues.data && issues.data.length > 0 &&
+                    <span className="badge red">{issues.data.length}</span>}
+                  <Link className="round-btn" to="/issues" aria-label={t("issues")}>→</Link>
+                </span>}>
             {!issues.data ? <span className="muted">{issues.error ?? t("loading")}</span>
               : issues.data.length === 0 ? <span className="badge green">{t("noIssues")}</span>
               : (

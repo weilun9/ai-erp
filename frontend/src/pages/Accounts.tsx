@@ -4,7 +4,7 @@ import { api, money } from "../api";
 import type { Page } from "../api";
 import { useSession } from "../session";
 import { Picker } from "../docs/Picker";
-import { errorText, isNum, round2, today } from "../docs/shared";
+import { DOC_ROUTE, errorText, isNum, round2, today } from "../docs/shared";
 import type { Key } from "../i18n";
 
 // Accounts: one customer's or supplier's account.
@@ -30,15 +30,10 @@ interface Knock {
   source_id: string | null; created_at: string; voided_at: string | null;
 }
 
-// where each document type opens (fees have no screen of their own)
-const ROUTE: Record<string, string> = {
-  INV: "sales-invoice", CN: "customer-cn", OR: "receipt",
-  GRN: "grn", SCN: "supplier-cn", PV: "supplier-payment",
-};
 const monthStart = () => today().slice(0, 8) + "01";
 
 function DocLink({ type, id, no }: { type: string; id: string; no: string }) {
-  const r = ROUTE[type];
+  const r = DOC_ROUTE[type];
   return r ? <Link to={`/docs/${r}/${id}`}>{no}</Link> : <span>{no}</span>;
 }
 
