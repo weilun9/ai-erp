@@ -75,7 +75,7 @@ export function Items() {
                 <tbody>
                   {items.map((i) => (
                     <tr key={i.id} className="click" onClick={() => setPicked(i)}
-                        style={picked?.id === i.id ? { background: "rgba(255,255,255,0.6)" } : {}}>
+                        style={picked?.id === i.id ? { background: "rgba(255,255,255,0.06)" } : {}}>
                       <td>{i.code}</td>
                       <td>{i.name}</td>
                       <td className="num">{money(i.uoms.find((u) => u.uom === i.base_uom)?.selling_price)}</td>

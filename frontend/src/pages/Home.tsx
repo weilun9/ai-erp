@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import type { ReactNode } from "react";
+import type { CSSProperties, ReactNode } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { api, money, qty } from "../api";
 import type { Page } from "../api";
@@ -29,17 +29,29 @@ function useLoad<T>(enabled: boolean, load: () => Promise<T>) {
   return { data, error, loaded };
 }
 
-function Card({ title, extra, children, className = "" }: {
-  title: string; extra?: ReactNode; children: ReactNode; className?: string;
+type Glow = "green" | "blue" | "pink" | "violet";
+
+/** A home card. With `glow` it gets the gradient border and a blurred halo of the same
+ * gradient behind it; `delay` staggers the cards rising in. */
+function Card({ title, extra, children, className = "", glow, delay = 0 }: {
+  title: string; extra?: ReactNode; children: ReactNode; className?: string; glow?: Glow; delay?: number;
 }) {
-  return (
-    <section className={`card glass ${className}`}>
+  const card = (
+    <section className={`card glass ${glow ? "" : className}`}>
       <h3>
         <span>{title}</span>
         {extra}
       </h3>
       {children}
     </section>
+  );
+  if (!glow) return card;
+  return (
+    <div className={`glow-wrap ${className}`}
+         style={{ ["--g" as string]: `var(--g-${glow})`, animationDelay: `${delay}s` } as CSSProperties}>
+      <div className="halo" aria-hidden="true" />
+      {card}
+    </div>
   );
 }
 
@@ -52,12 +64,12 @@ function Spark({ values }: { values: number[] }) {
     <svg className="spark" viewBox="0 0 100 60" preserveAspectRatio="none" aria-hidden>
       <defs>
         <linearGradient id="sg" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0" stopColor="#3f8f3a" stopOpacity="0.35" />
-          <stop offset="1" stopColor="#3f8f3a" stopOpacity="0" />
+          <stop offset="0" stopColor="#34D399" stopOpacity="0.35" />
+          <stop offset="1" stopColor="#34D399" stopOpacity="0" />
         </linearGradient>
       </defs>
       <path d={`${line} L100 60 L0 60Z`} fill="url(#sg)" />
-      <path d={line} fill="none" stroke="#3f8f3a" strokeWidth="2" vectorEffect="non-scaling-stroke"
+      <path d={line} fill="none" stroke="#34D399" strokeWidth="2" vectorEffect="non-scaling-stroke"
             strokeLinejoin="round" />
     </svg>
   );
@@ -109,12 +121,11 @@ export function Home() {
 
   const byDay = new Map((week.data?.rows ?? []).map((r) => [r.day, Number(r.sales)]));
   const hour = today.getHours();
-  const greet = hour < 12 ? "☀" : hour < 18 ? "⛅" : "☾";
 
   return (
     <>
       <div className="greeting">
-        <h1>{t("hello")}, {me?.display_name} {greet}</h1>
+        <h1>{t(hour < 12 ? "goodMorning" : hour < 18 ? "goodAfternoon" : "goodEvening")}, {me?.display_name}</h1>
         <p>{today.toLocaleDateString("en-MY", { weekday: "long", day: "numeric", month: "long" })}</p>
       </div>
       {offline && (
@@ -138,7 +149,7 @@ export function Home() {
         )}
 
         {can("report.run") && can("sal.doc.read") && (
-          <Card title={t("thisWeek")}>
+          <Card title={t("thisWeek")} glow="green" delay={0.1}>
             {week.error ? <span className="error">{week.error}</span> : !week.data ? (
               <span className="muted">{t("loading")}</span>
             ) : (
@@ -154,7 +165,7 @@ export function Home() {
         )}
 
         {can("report.run") && can("inv.balance.read") && (
-          <Card title={t("lowStock")} extra={<span className="muted">≤ 5 {t("atOrBelow")}</span>}>
+          <Card title={t("lowStock")} glow="violet" delay={0.2} extra={<span className="muted">≤ 5 {t("atOrBelow")}</span>}>
             {!low.data ? <span className="muted">{low.error ?? t("loading")}</span>
               : low.data.rows.length === 0 ? <span className="badge green">{t("allGood")}</span>
               : (
@@ -171,7 +182,7 @@ export function Home() {
         )}
 
         {can("sal.doc.read") && (
-          <Card title={t("einvoice")}
+          <Card title={t("einvoice")} glow="blue" delay={0.3}
                 extra={pending.data && pending.data.length > 0 &&
                   <span className="badge amber">{pending.data.length}</span>}>
             {!pending.data ? <span className="muted">{pending.error ?? t("loading")}</span>
@@ -226,7 +237,7 @@ export function Home() {
         )}
 
         {can("pos.sale.create") && (
-          <Card title={t("shift")}>
+          <Card title={t("shift")} glow="pink" delay={0.4}>
             {shift.error ? <span className="error">{shift.error}</span>
               : !shift.loaded ? <span className="muted">{t("loading")}</span>
               : shift.data === null ? <span className="muted">{t("noShift")}</span>

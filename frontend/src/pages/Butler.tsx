@@ -191,7 +191,7 @@ export function Butler() {
               <div>
                 <div className="plus" style={{ margin: "0 auto 12px", width: 64, height: 64,
                   borderRadius: "50%", display: "grid", placeItems: "center", fontSize: 30,
-                  background: "rgba(255,255,255,0.8)" }}>✦</div>
+                  background: "rgba(255,255,255,0.08)" }}>✦</div>
                 <h2 style={{ margin: 0 }}>{t("askButler")}</h2>
                 <p className="muted">{t("askPlaceholder")}</p>
               </div>
