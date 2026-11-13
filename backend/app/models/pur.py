@@ -94,6 +94,8 @@ class GrnLine(PurchaseLine, Base):
     header_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("pur.grn_h.id", ondelete="CASCADE"), index=True
     )
+    # The purchase order line this delivery fills, if it came from a PO.
+    po_line_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("pur.po_l.id"), index=True)
     header: Mapped[Grn] = relationship(back_populates="lines")
 
 
@@ -122,3 +124,26 @@ class SupplierCnLine(PurchaseLine, Base):
         ForeignKey("pur.supplier_cn_h.id", ondelete="CASCADE"), index=True
     )
     header: Mapped[SupplierCn] = relationship(back_populates="lines")
+
+
+class PurchaseOrder(PurchaseHeader, Base):
+    """What we ordered from the supplier. Never moves stock; "posted" = issued to the
+    supplier. GRNs receive against its lines (partial deliveries allowed) until it is
+    fully received or closed by hand."""
+
+    __tablename__ = "po_h"
+    expected_date: Mapped[date | None] = mapped_column(Date)
+    closed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    closed_by: Mapped[uuid.UUID | None] = mapped_column(Uuid)
+    lines: Mapped[list["PurchaseOrderLine"]] = relationship(
+        back_populates="header", cascade="all, delete-orphan", order_by="PurchaseOrderLine.line_no"
+    )
+
+
+class PurchaseOrderLine(PurchaseLine, Base):
+    __tablename__ = "po_l"
+    __table_args__ = {"schema": "pur"}
+    header_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("pur.po_h.id", ondelete="CASCADE"), index=True
+    )
+    header: Mapped[PurchaseOrder] = relationship(back_populates="lines")

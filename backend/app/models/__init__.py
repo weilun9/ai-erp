@@ -57,7 +57,14 @@ from app.models.pos import (  # noqa: F401
     PosSale,
     PosShift,
 )
-from app.models.pur import Grn, GrnLine, SupplierCn, SupplierCnLine  # noqa: F401
+from app.models.pur import (  # noqa: F401
+    Grn,
+    GrnLine,
+    PurchaseOrder,
+    PurchaseOrderLine,
+    SupplierCn,
+    SupplierCnLine,
+)
 from app.models.sal import (  # noqa: F401
     CustomerCn,
     CustomerCnLine,

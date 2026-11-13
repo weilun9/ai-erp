@@ -246,6 +246,23 @@ def main() -> None:
             },
         )
         say(f"{grn['doc_no']} (supplier invoice {ref}): 2 CTN @ {money(price)}")
+    po, _ = office.posted(
+        "/purchase/purchase-order",
+        {
+            "doc_date": TODAY.isoformat(),
+            "supplier_id": nestle,
+            "location_id": hq,
+            "lines": [{"item_id": milo, "uom": "CTN", "qty": "3", "unit_price": "264.00"}],
+        },
+    )
+    part = office.post(
+        "/purchase/grn/receive-po",
+        {"po_id": po["id"], "lines": [{"source_line_id": po["lines"][0]["id"], "qty": "1"}]},
+    )
+    say(f"{po['doc_no']} issued for 3 CTN; receiving it starts a GRN draft for 1 CTN")
+    gone = office.http.delete(API + f"/purchase/grn/{part['id']}", headers=office.h)
+    assert gone.status_code == 204, gone.text
+    say("  (draft dropped: the 3 CTN stay on order and show on the item and reorder list)")
     bal = office.get("/stock/balance", item_id=milo, location_id=hq)["items"][0]
     say(f"Stock {float(bal['qty']):.0f} pcs, average cost {money(bal['avg_cost'])} per piece")
     seen = counter.get("/stock/balance", item_id=milo, location_id=hq)["items"][0]

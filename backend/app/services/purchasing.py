@@ -1,4 +1,9 @@
-"""Purchasing documents: GRN (goods received + supplier invoice) and supplier CN (return).
+"""Purchasing documents: purchase order (PO), GRN (goods received + supplier invoice) and
+supplier CN (return).
+
+A PO never moves stock: posting it means it is issued to the supplier. GRNs receive against
+PO lines (po_line_id), partially if need be; what is not received yet is "on order" until
+the PO is fully received or closed by hand.
 
 Lifecycle (design doc section 4):
     DRAFT  --save-->  SAVED  --post-->  POSTED  --void-->  VOIDED
@@ -35,6 +40,8 @@ from app.models import (
     ItemUom,
     Location,
     PostingJob,
+    PurchaseOrder,
+    PurchaseOrderLine,
     Supplier,
     SupplierCn,
     SupplierCnLine,
@@ -46,6 +53,7 @@ from app.services.auth import Principal
 from app.services.doclib import EDITABLE, check_common, line_amounts
 from app.services.doclib import q4 as _q4
 from app.services.doclib import set_totals as _set_totals
+from app.services.doclib import today as _today
 from app.services.numbering import next_doc_no
 
 
@@ -57,15 +65,21 @@ class Kind:
     doc_type: str
     direction: int  # +1 stock in, -1 stock out
     entity: str
-    profile_pattern: str  # supplier profile key for supplier_ref_no format
+    profile_pattern: str  # supplier profile key for supplier_ref_no format ("" = none)
 
 
 KINDS: dict[str, Kind] = {
+    "purchase-order": Kind(
+        "purchase-order", PurchaseOrder, PurchaseOrderLine, "PO", 0, "pur.purchase_order", ""
+    ),
     "grn": Kind("grn", Grn, GrnLine, "GRN", +1, "pur.grn", "invoice_no_pattern"),
     "supplier-cn": Kind(
         "supplier-cn", SupplierCn, SupplierCnLine, "SCN", -1, "pur.supplier_cn", "cn_no_pattern"
     ),
 }
+
+
+ACTIVE = ("SAVED", "POSTED")  # documents that count (drafts and voids do not)
 
 
 def _kind(key: str) -> Kind:
@@ -201,6 +215,12 @@ def _build_lines(
         )
     }
     taxes = {t.id: t for t in db.scalars(select(TaxCode).where(TaxCode.company_id == p.company_id))}
+    last_cost = _last_costs(db, p, item_ids) if k.direction == 0 else {}
+    po_lines = (
+        _po_lines(db, {ln["po_line_id"] for ln in lines if ln.get("po_line_id")})
+        if k.key == "grn"
+        else {}
+    )
     out = []
     for n, ln in enumerate(lines, start=1):
         item = items.get(ln["item_id"])
@@ -217,10 +237,38 @@ def _build_lines(
         if tax_id and tax is None:
             raise BadRequest("Tax code not found", {"line": n})
 
+        extra: dict[str, Any] = {}
+        pol = None
+        if ln.get("po_line_id"):
+            pol = po_lines.get(ln["po_line_id"])
+            if (
+                pol is None
+                or pol.header.company_id != p.company_id
+                or pol.header.status != "POSTED"
+                or pol.header.supplier_id != supplier_id
+                or pol.item_id != item.id
+            ):
+                raise BadRequest(
+                    "PO line must be on an issued PO of this supplier for the same item",
+                    {"line": n},
+                )
+            extra["po_line_id"] = pol.id
+
         qty = Decimal(ln["qty"])
         disc = Decimal(ln.get("discount_pct") or 0)
         if ln.get("unit_price") is not None:
             price, source = Decimal(ln["unit_price"]), "DOC"
+        elif pol is not None and pol.uom == uom.uom:
+            price, disc, source = pol.unit_price, pol.discount_pct, "PO"
+        elif k.direction == 0:
+            # A PO may leave the price out: the item's purchase price, else the last price
+            # paid (cost per base unit x this unit's factor), else missing.
+            if uom.purchase_price is not None:
+                price, source = uom.purchase_price, "LIST"
+            elif item.id in last_cost:
+                price, source = _q4(last_cost[item.id] * uom.factor), "LAST"
+            else:
+                price, source = Decimal(0), "MISSING"
         elif k.direction > 0:
             raise BadRequest("Unit price is required", {"line": n})
         elif item.id in invoice_costs:
@@ -249,9 +297,89 @@ def _build_lines(
                 # cost per base unit, net of discount, excluding tax (SST is not cost here)
                 unit_cost=_q4(subtotal / base_qty) if base_qty else Decimal(0),
                 remark=ln.get("remark"),
+                **extra,
             )
         )
     return out
+
+
+def _last_costs(db: Session, p: Principal, item_ids: set) -> dict:
+    """Net cost per base unit on each item's latest posted GRN line."""
+    rows = db.execute(
+        select(GrnLine.item_id, GrnLine.unit_cost)
+        .join(Grn, Grn.id == GrnLine.header_id)
+        .where(
+            Grn.company_id == p.company_id, Grn.status == "POSTED", GrnLine.item_id.in_(item_ids)
+        )
+        .order_by(GrnLine.item_id, Grn.doc_date.desc(), Grn.posted_at.desc())
+        .distinct(GrnLine.item_id)
+    ).all()
+    return dict(rows)
+
+
+def _po_lines(db: Session, ids: set, *, lock: bool = False) -> dict:
+    if not ids:
+        return {}
+    stmt = (
+        select(PurchaseOrderLine)
+        .where(PurchaseOrderLine.id.in_(ids))
+        .options(selectinload(PurchaseOrderLine.header))
+    )
+    if lock:
+        stmt = stmt.with_for_update(of=PurchaseOrderLine)
+    return {ln.id: ln for ln in db.scalars(stmt)}
+
+
+def _received_qty(db: Session, po_line_ids: set, exclude_grn=None) -> dict:
+    """Base quantity of each PO line already on saved or posted GRNs."""
+    if not po_line_ids:
+        return {}
+    stmt = (
+        select(GrnLine.po_line_id, func.sum(GrnLine.base_qty))
+        .join(Grn, Grn.id == GrnLine.header_id)
+        .where(GrnLine.po_line_id.in_(po_line_ids), Grn.status.in_(ACTIVE))
+        .group_by(GrnLine.po_line_id)
+    )
+    if exclude_grn:
+        stmt = stmt.where(Grn.id != exclude_grn)
+    return dict(db.execute(stmt).all())
+
+
+def received_by_line(db: Session, po) -> dict:
+    """For a PO: quantity of each line (in the line's own unit) received so far."""
+    done = _received_qty(db, {ln.id for ln in po.lines})
+    return {ln.id: _q4(done.get(ln.id, Decimal(0)) / ln.factor) for ln in po.lines}
+
+
+def on_order(
+    db: Session, company_id: uuid.UUID, item_ids=None, location_ids=None
+) -> dict[tuple[uuid.UUID, uuid.UUID], Decimal]:
+    """Base quantity ordered and not yet received, per (item, location): issued POs that
+    are not closed; over-deliveries never make it negative."""
+    received = (
+        select(GrnLine.po_line_id, func.sum(GrnLine.base_qty).label("qty"))
+        .join(Grn, Grn.id == GrnLine.header_id)
+        .where(Grn.status.in_(ACTIVE), GrnLine.po_line_id.is_not(None))
+        .group_by(GrnLine.po_line_id)
+        .subquery()
+    )
+    left = func.greatest(PurchaseOrderLine.base_qty - func.coalesce(received.c.qty, 0), 0)
+    stmt = (
+        select(PurchaseOrderLine.item_id, PurchaseOrder.location_id, func.sum(left))
+        .join(PurchaseOrder, PurchaseOrder.id == PurchaseOrderLine.header_id)
+        .outerjoin(received, received.c.po_line_id == PurchaseOrderLine.id)
+        .where(
+            PurchaseOrder.company_id == company_id,
+            PurchaseOrder.status == "POSTED",
+            PurchaseOrder.closed_at.is_(None),
+        )
+        .group_by(PurchaseOrderLine.item_id, PurchaseOrder.location_id)
+    )
+    if item_ids is not None:
+        stmt = stmt.where(PurchaseOrderLine.item_id.in_(item_ids))
+    if location_ids is not None:
+        stmt = stmt.where(PurchaseOrder.location_id.in_(location_ids))
+    return {(i, loc): q for i, loc, q in db.execute(stmt).all() if q}
 
 
 def _snapshot(doc) -> dict[str, Any]:
@@ -278,6 +406,11 @@ def _validate_for_save(db: Session, p: Principal, k: Kind, doc) -> list[dict[str
     """Hard rules raise; soft findings come back as warnings for the user to check."""
     check_common(db, p, doc)
     missing = [ln.line_no for ln in doc.lines if ln.price_source == "MISSING"]
+    if missing and k.direction == 0:
+        raise BusinessRule(
+            "Price missing: enter the price, or set the item's purchase price",
+            {"lines": missing},
+        )
     if missing:
         raise BusinessRule(
             "Return price missing: enter the price from the CN, or the original invoice "
@@ -286,6 +419,12 @@ def _validate_for_save(db: Session, p: Principal, k: Kind, doc) -> list[dict[str
         )
 
     warnings: list[dict[str, Any]] = []
+    if k.key == "purchase-order":
+        if doc.expected_date and doc.expected_date < doc.doc_date:
+            raise BusinessRule("Expected delivery date is before the order date")
+        return warnings  # supplier_ref_no on a PO is their quotation no.: no checks
+    if k.key == "grn":
+        warnings += _over_po(db, doc)
     ref = (doc.supplier_ref_no or "").strip()
     if ref:
         dup = db.scalar(
@@ -318,6 +457,35 @@ def _validate_for_save(db: Session, p: Principal, k: Kind, doc) -> list[dict[str
             {"code": "SUPPLIER_REF_MISSING", "message": "Supplier invoice number is empty"}
         )
     return warnings
+
+
+def _over_po(db: Session, doc) -> list[dict[str, Any]]:
+    """Suppliers sometimes deliver more than ordered: allowed, but flagged."""
+    wanted: dict[uuid.UUID, Decimal] = {}
+    for ln in doc.lines:
+        if ln.po_line_id:
+            wanted[ln.po_line_id] = wanted.get(ln.po_line_id, Decimal(0)) + ln.base_qty
+    if not wanted:
+        return []
+    po_lines = _po_lines(db, set(wanted), lock=True)
+    done = _received_qty(db, set(wanted), exclude_grn=doc.id)
+    over = []
+    for line_id, qty in wanted.items():
+        pl = po_lines[line_id]
+        left = pl.base_qty - done.get(line_id, Decimal(0))
+        if qty > left:
+            over.append(
+                {
+                    "po_no": pl.header.doc_no,
+                    "po_line": pl.line_no,
+                    "ordered_left": str(_q4(left / pl.factor)),
+                    "received": str(_q4(qty / pl.factor)),
+                    "uom": pl.uom,
+                }
+            )
+    if not over:
+        return []
+    return [{"code": "OVER_PO", "message": "More received than is left on the PO", "lines": over}]
 
 
 # --- commands -----------------------------------------------------------------------------
@@ -448,6 +616,19 @@ def post_doc(db: Session, p: Principal, kind: str, doc_id: uuid.UUID, version: i
     if getattr(doc, "completeness", None) == "RECORDED":
         raise BusinessRule("Confirm the returned items before posting this CN")
 
+    if k.direction != 0:
+        _post_stock(db, p, k, doc)
+    doc.status = "POSTED"
+    doc.posted_at = datetime.now(UTC)
+    doc.posted_by = p.user_id
+    doc.version += 1
+    doc.updated_by = p.user_id
+    audit.record(db, p, "post", k.entity, doc.id, after={"doc_no": doc.doc_no, "total": doc.total})
+    db.commit()
+    return get_doc(db, p, kind, doc.id)
+
+
+def _post_stock(db: Session, p: Principal, k: Kind, doc) -> None:
     stock.apply_moves(
         db,
         company_id=p.company_id,
@@ -476,14 +657,6 @@ def post_doc(db: Session, p: Principal, kind: str, doc_id: uuid.UUID, version: i
             attempts=1,
         )
     )
-    doc.status = "POSTED"
-    doc.posted_at = datetime.now(UTC)
-    doc.posted_by = p.user_id
-    doc.version += 1
-    doc.updated_by = p.user_id
-    audit.record(db, p, "post", k.entity, doc.id, after={"doc_no": doc.doc_no, "total": doc.total})
-    db.commit()
-    return get_doc(db, p, kind, doc.id)
 
 
 def void_doc(db: Session, p: Principal, kind: str, doc_id: uuid.UUID, version: int, reason: str):
@@ -495,7 +668,13 @@ def void_doc(db: Session, p: Principal, kind: str, doc_id: uuid.UUID, version: i
     if doc.version != version:
         raise VersionConflict("This document was changed by someone else; reload it")
     was = doc.status
-    if was == "POSTED":
+    if k.key == "purchase-order":
+        used = _received_qty(db, {ln.id for ln in doc.lines})
+        if any(used.values()):
+            raise BusinessRule(
+                "Goods were already received on this PO: void those GRNs first, or close the PO"
+            )
+    elif was == "POSTED":
         ko.release_for_void(db, [doc.id], doc.id, p.user_id)
         stock.reverse_doc(
             db, company_id=p.company_id, doc_type=k.doc_type, doc_id=doc.id, doc_no=doc.doc_no
@@ -509,3 +688,94 @@ def void_doc(db: Session, p: Principal, kind: str, doc_id: uuid.UUID, version: i
     audit.record(db, p, "void", k.entity, doc.id, before={"status": was}, after={"reason": reason})
     db.commit()
     return get_doc(db, p, kind, doc.id)
+
+
+def close_po(db: Session, p: Principal, doc_id: uuid.UUID, version: int, reopen: bool = False):
+    """Stop waiting for the rest of an issued PO (or reopen it): it leaves "on order"."""
+    p.require("pur.doc.post")
+    doc = get_doc(db, p, "purchase-order", doc_id, lock=True)
+    if doc.status != "POSTED":
+        raise DocState("Only an issued (posted) PO can be closed", {"status": doc.status})
+    if doc.version != version:
+        raise VersionConflict("This document was changed by someone else; reload it")
+    if reopen:
+        doc.closed_at, doc.closed_by = None, None
+    else:
+        doc.closed_at, doc.closed_by = datetime.now(UTC), p.user_id
+    doc.version += 1
+    doc.updated_by = p.user_id
+    audit.record(
+        db,
+        p,
+        "reopen" if reopen else "close",
+        "pur.purchase_order",
+        doc.id,
+        after={"doc_no": doc.doc_no},
+    )
+    db.commit()
+    return get_doc(db, p, "purchase-order", doc.id)
+
+
+def receive_po(
+    db: Session,
+    p: Principal,
+    po_id: uuid.UUID,
+    *,
+    doc_date: date | None = None,
+    pick: list[dict[str, Any]] | None = None,
+):
+    """Start a draft GRN from an issued PO. `pick` = [{"source_line_id", "qty"}] in the PO
+    line's unit; without it everything not received yet is taken."""
+    po = get_doc(db, p, "purchase-order", po_id)
+    if po.status != "POSTED":
+        raise DocState("Only an issued (posted) PO can be received", {"status": po.status})
+    if po.closed_at is not None:
+        raise BusinessRule("This PO is closed; reopen it to receive more")
+    done = _received_qty(db, {ln.id for ln in po.lines})
+    wanted: dict[uuid.UUID, Decimal] | None = None
+    if pick is not None:
+        known = {ln.id for ln in po.lines}
+        wanted = {}
+        for row in pick:
+            if row["source_line_id"] not in known:
+                raise BadRequest("That line is not on this PO")
+            if row["source_line_id"] in wanted:
+                raise BadRequest("The same PO line is picked twice")
+            wanted[row["source_line_id"]] = Decimal(row["qty"])
+        if not wanted:
+            raise BadRequest("Pick at least one line to receive")
+    lines = []
+    for ln in po.lines:
+        left = max(ln.base_qty - done.get(ln.id, Decimal(0)), Decimal(0))
+        if wanted is not None:
+            if ln.id not in wanted:
+                continue
+            qty = wanted[ln.id]  # more than ordered is allowed; saving warns OVER_PO
+        elif left <= 0:
+            continue
+        else:
+            qty = _q4(left / ln.factor)
+        lines.append(
+            {
+                "item_id": ln.item_id,
+                "uom": ln.uom,
+                "qty": qty,
+                "unit_price": ln.unit_price,
+                "discount_pct": ln.discount_pct,
+                "tax_code_id": ln.tax_code_id,
+                "remark": ln.remark,
+                "po_line_id": ln.id,
+            }
+        )
+    if not lines:
+        raise BusinessRule("Everything on this PO is already received")
+    return create_doc(
+        db,
+        p,
+        "grn",
+        lines=lines,
+        doc_date=doc_date or _today(db, p),
+        supplier_id=po.supplier_id,
+        location_id=po.location_id,
+        remark=f"From {po.doc_no}",
+    )

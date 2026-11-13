@@ -531,6 +531,9 @@ def item_overview(db: Session, p: Principal, item_id: uuid.UUID) -> dict[str, An
         s.location_id: s
         for s in db.scalars(select(ItemLocation).where(ItemLocation.item_id == item.id))
     }
+    from app.services.purchasing import on_order  # avoid an import cycle
+
+    ordered = on_order(db, p.company_id, [item.id], loc_ids)
     locations = []
     for loc in locs:
         b, st = bal.get(loc.id), settings.get(loc.id)
@@ -547,6 +550,7 @@ def item_overview(db: Session, p: Principal, item_id: uuid.UUID) -> dict[str, An
             "own": {f: getattr(st, f) if st else None for f in REORDER_FIELDS},
             "effective": eff,
             "shelf": st.shelf if st else None,
+            "on_order": ordered.get((item.id, loc.id), Decimal(0)),
             "below_reorder": eff["reorder_level"] is not None and qty <= eff["reorder_level"],
         }
         if can_cost:
@@ -601,6 +605,7 @@ def item_overview(db: Session, p: Principal, item_id: uuid.UUID) -> dict[str, An
         "item_id": item.id,
         "locations": locations,
         "total_qty": sum((r["qty"] for r in locations), Decimal(0)),
+        "total_on_order": sum((r["on_order"] for r in locations), Decimal(0)),
         "suppliers": list(suppliers.values()),
         "purchase_history": prices,
         "cost_hidden": not can_cost,

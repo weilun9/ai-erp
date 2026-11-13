@@ -20,6 +20,8 @@ from app.models import (
     Customer,
     CustomerCn,
     CustomerCnLine,
+    Grn,
+    GrnLine,
     Item,
     ItemLocation,
     Location,
@@ -28,6 +30,7 @@ from app.models import (
     SalesInvoice,
     SalesInvoiceLine,
     StockBalance,
+    Supplier,
 )
 from app.services.auth import Principal
 from app.services.doclib import q4
@@ -251,6 +254,11 @@ def reorder(
     rows = db.execute(
         stmt.order_by(Location.code, (qty - level), Item.code).limit(max(1, min(limit, 500)))
     ).all()
+    from app.services.purchasing import on_order  # avoid an import cycle
+
+    item_ids = {r[0].id for r in rows}
+    ordered = on_order(db, p.company_id, item_ids, locations)
+    last_supplier = _last_suppliers(db, p, item_ids)
     out = []
     for item, loc, q, lv, mx, rq, shelf in rows:
         if mx is not None and mx > q:
@@ -259,6 +267,9 @@ def reorder(
             suggest = rq
         else:
             suggest = max(lv - q, ZERO)
+        coming = ordered.get((item.id, loc.id), ZERO)
+        suggest = max(suggest - coming, ZERO)  # what is already on order is not asked again
+        sup = last_supplier.get(item.id)
         out.append(
             {
                 "item_id": item.id,
@@ -271,7 +282,29 @@ def reorder(
                 "qty": q4(q),
                 "reorder_level": lv,
                 "max_qty": mx,
+                "on_order": q4(coming),
                 "suggested_qty": q4(suggest),
+                "last_supplier_id": sup[0] if sup else None,
+                "last_supplier": sup[1] if sup else None,
             }
         )
     return {"rows": out}
+
+
+def _last_suppliers(db: Session, p: Principal, item_ids) -> dict:
+    """Who last delivered each item (latest posted GRN): the default supplier to reorder from."""
+    if not item_ids:
+        return {}
+    rows = db.execute(
+        select(GrnLine.item_id, Supplier.id, Supplier.code)
+        .join(Grn, Grn.id == GrnLine.header_id)
+        .join(Supplier, Supplier.id == Grn.supplier_id)
+        .where(
+            Grn.company_id == p.company_id,
+            Grn.status == "POSTED",
+            GrnLine.item_id.in_(item_ids),
+        )
+        .order_by(GrnLine.item_id, Grn.doc_date.desc(), Grn.posted_at.desc())
+        .distinct(GrnLine.item_id)
+    ).all()
+    return {i: (sid, code) for i, sid, code in rows}

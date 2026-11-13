@@ -395,6 +395,7 @@ class ItemLocationOut(BaseModel):
     own: ReorderSet
     effective: ReorderSet
     shelf: str | None
+    on_order: Decimal
     below_reorder: bool
 
 
@@ -425,6 +426,7 @@ class ItemOverviewOut(BaseModel):
     item_id: uuid.UUID
     locations: list[ItemLocationOut]
     total_qty: Decimal
+    total_on_order: Decimal
     suppliers: list[ItemSupplierOut]
     purchase_history: list[PurchasePriceOut]
     cost_hidden: bool
@@ -451,6 +453,7 @@ def _overview_out(ov, p) -> ItemOverviewOut:
         item_id=ov["item_id"],
         locations=[shape(ItemLocationOut, r, p) for r in ov["locations"]],
         total_qty=ov["total_qty"],
+        total_on_order=ov["total_on_order"],
         suppliers=[shape(ItemSupplierOut, r, p) for r in ov["suppliers"]],
         purchase_history=[PurchasePriceOut(**r) for r in ov["purchase_history"]],
         cost_hidden=ov["cost_hidden"],

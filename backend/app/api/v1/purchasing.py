@@ -1,4 +1,5 @@
-"""/purchase/{kind}: kind is `grn` (goods received / supplier invoice) or `supplier-cn`."""
+"""/purchase/{kind}: `purchase-order`, `grn` (goods received / supplier invoice) or
+`supplier-cn`."""
 
 import uuid
 from datetime import date, datetime
@@ -14,7 +15,7 @@ from app.services import purchasing as svc
 
 router = APIRouter(prefix="/purchase", tags=["purchasing"])
 
-Kind = Literal["grn", "supplier-cn"]
+Kind = Literal["purchase-order", "grn", "supplier-cn"]
 Status = Literal["DRAFT", "SAVED", "POSTED", "VOIDED"]
 Completeness = Literal["RECORDED", "PROVISIONAL", "COMPLETE", "DISPUTED"]
 EXCLUDE_UNSET = {"response_model_exclude_unset": True}
@@ -30,6 +31,8 @@ class LineIn(BaseModel):
     discount_pct: Decimal = Field(default=Decimal(0), ge=0, le=100, decimal_places=4)
     tax_code_id: uuid.UUID | None = None
     remark: str | None = Field(default=None, max_length=200)
+    # grn only: the purchase order line this delivery fills (price defaults to the PO's)
+    po_line_id: uuid.UUID | None = None
 
 
 class DocIn(BaseModel):
@@ -41,6 +44,8 @@ class DocIn(BaseModel):
     # supplier-cn only
     completeness: Completeness | None = None
     ref_invoice_no: str | None = Field(default=None, max_length=50)
+    # purchase-order only
+    expected_date: date | None = None
     lines: list[LineIn] = Field(default=[], max_length=500)
 
 
@@ -53,6 +58,7 @@ class DocPatch(BaseModel):
     remark: str | None = Field(default=None, max_length=500)
     completeness: Completeness | None = None
     ref_invoice_no: str | None = Field(default=None, max_length=50)
+    expected_date: date | None = None
     lines: list[LineIn] | None = Field(default=None, max_length=500)
 
 
@@ -82,6 +88,9 @@ class LineOut(BaseModel):
     line_total: Decimal | None = sensitive("cost")
     unit_cost: Decimal | None = sensitive("cost")
     remark: str | None
+    po_line_id: uuid.UUID | None = None
+    # purchase order, single document only: how much of the line is received already
+    received_qty: Decimal | None = None
 
 
 class DocOut(BaseModel):
@@ -99,6 +108,8 @@ class DocOut(BaseModel):
     total: Decimal | None = sensitive("cost")
     completeness: str | None = None
     ref_invoice_no: str | None = None
+    expected_date: date | None = None
+    closed_at: datetime | None = None
     posted_at: datetime | None
     voided_at: datetime | None
     void_reason: str | None
@@ -112,8 +123,18 @@ class Page[T](BaseModel):
     total: int
 
 
-def _out(doc, p, warnings: list[dict[str, Any]] | None = None) -> DocOut:
-    extra: dict[str, Any] = {"lines": [shape(LineOut, ln, p) for ln in doc.lines]}
+def _line(ln, p, received):
+    v = {c: getattr(ln, c) for c in LineOut.model_fields if hasattr(ln, c)}
+    if received is not None:
+        v["received_qty"] = received.get(ln.id, Decimal(0))
+    return shape(LineOut, v, p)
+
+
+def _out(doc, p, warnings: list[dict[str, Any]] | None = None, received=None) -> DocOut:
+    extra: dict[str, Any] = {"lines": [_line(ln, p, received) for ln in doc.lines]}
+    if hasattr(doc, "expected_date"):
+        extra["expected_date"] = doc.expected_date
+        extra["closed_at"] = doc.closed_at
     if hasattr(doc, "completeness"):
         extra["completeness"] = doc.completeness
         extra["ref_invoice_no"] = doc.ref_invoice_no
@@ -132,9 +153,45 @@ def _values(body: BaseModel, kind: str) -> dict[str, Any]:
     if kind != "supplier-cn":
         for f in ("completeness", "ref_invoice_no"):
             v.pop(f, None)
+    if kind != "purchase-order":
+        v.pop("expected_date", None)
     if "lines" in v and v["lines"] is not None:
         v["lines"] = [dict(ln) for ln in v["lines"]]
+        if kind != "grn":
+            for ln in v["lines"]:
+                ln.pop("po_line_id", None)
     return v
+
+
+class ReceivePick(BaseModel):
+    source_line_id: uuid.UUID
+    qty: Decimal = Field(gt=0, max_digits=18, decimal_places=4)
+
+
+class ReceiveIn(BaseModel):
+    po_id: uuid.UUID
+    doc_date: date | None = None
+    lines: list[ReceivePick] | None = Field(
+        default=None, description="PO lines and quantities to receive now; omit for all"
+    )
+
+
+class CloseIn(VersionIn):
+    reopen: bool = False
+
+
+@router.post("/grn/receive-po", status_code=201, **EXCLUDE_UNSET)
+def receive_po(body: ReceiveIn, p: CurrentUser, db: DB) -> DocOut:
+    """Start a draft GRN from an issued PO (all that is left, or the picked lines)."""
+    pick = [r.model_dump() for r in body.lines] if body.lines is not None else None
+    return _out(svc.receive_po(db, p, body.po_id, doc_date=body.doc_date, pick=pick), p)
+
+
+@router.post("/purchase-order/{doc_id}/close", **EXCLUDE_UNSET)
+def close_po(doc_id: uuid.UUID, body: CloseIn, p: CurrentUser, db: DB) -> DocOut:
+    """Stop waiting for the rest of the PO (reopen=true undoes it)."""
+    doc = svc.close_po(db, p, doc_id, body.version, reopen=body.reopen)
+    return _out(doc, p, received=svc.received_by_line(db, doc))
 
 
 @router.get("/{kind}", **EXCLUDE_UNSET)
@@ -169,7 +226,9 @@ def list_docs(
 
 @router.get("/{kind}/{doc_id}", **EXCLUDE_UNSET)
 def get_doc(kind: Kind, doc_id: uuid.UUID, p: CurrentUser, db: DB) -> DocOut:
-    return _out(svc.get_doc(db, p, kind, doc_id), p)
+    doc = svc.get_doc(db, p, kind, doc_id)
+    received = svc.received_by_line(db, doc) if kind == "purchase-order" else None
+    return _out(doc, p, received=received)
 
 
 @router.post("/{kind}", status_code=201, **EXCLUDE_UNSET)

@@ -9,6 +9,7 @@ from app.models import DocSequence
 DEFAULT_PREFIX = {
     "GRN": "GRN",
     "SCN": "SCN",
+    "PO": "PO",
     "QT": "QT",
     "DO": "DO",
     "INV": "INV",

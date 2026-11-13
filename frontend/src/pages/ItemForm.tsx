@@ -43,10 +43,10 @@ interface CodeRow { key: number; barcode: string; uom: string }
 type ReorderSet = Record<ReorderKey, string | null>;
 interface LocRow {
   location_id: string; location_code: string; location_name: string; qty: string; avg_cost?: string | null;
-  own: ReorderSet; effective: ReorderSet; shelf: string | null; below_reorder: boolean;
+  own: ReorderSet; effective: ReorderSet; shelf: string | null; below_reorder: boolean; on_order: string;
 }
 interface Overview {
-  locations: LocRow[]; total_qty: string; cost_hidden: boolean;
+  locations: LocRow[]; total_qty: string; total_on_order: string; cost_hidden: boolean;
   suppliers: { supplier_id: string; supplier_code: string; supplier_name: string; last_date: string;
     last_doc_no: string | null; documents: number; base_qty: string; last_unit_cost?: string | null }[];
   purchase_history: { doc_id: string; doc_no: string | null; doc_date: string; supplier_code: string;
@@ -516,14 +516,17 @@ export function ItemForm() {
           <section className="card glass">
             <div className="row">
               <h3 style={{ margin: 0 }}>{t("perStore")}</h3>
-              <span className="muted">{t("totalOnHand")}: <b>{qty(ov.total_qty)} {f.base_uom}</b></span>
+              <span className="muted">
+                {t("totalOnHand")}: <b>{qty(ov.total_qty)} {f.base_uom}</b>
+                {Number(ov.total_on_order) > 0 && <> · {t("onOrder")}: <b>{qty(ov.total_on_order)}</b></>}
+              </span>
             </div>
             {editable && <span className="muted">{t("perStoreHint")}</span>}
             <div className="scroll-x">
               <table className="table doc-lines">
                 <thead>
                   <tr>
-                    <th>{t("store")}</th><th className="num">{t("onHand")}</th>
+                    <th>{t("store")}</th><th className="num">{t("onHand")}</th><th className="num">{t("onOrder")}</th>
                     {!ov.cost_hidden && <th className="num">{t("avgCost")}</th>}
                     {REORDER.map((k) => <th key={k} className="num">{t(REORDER_LABEL[k])}</th>)}
                     <th>{t("shelf")}</th>
@@ -541,6 +544,7 @@ export function ItemForm() {
                           </span>
                           {r.below_reorder && <span className="muted"> {t("belowReorder")}</span>}
                         </td>
+                        <td className="num">{Number(r.on_order) ? qty(r.on_order) : "—"}</td>
                         {!ov.cost_hidden && <td className="num">{r.avg_cost != null ? money(r.avg_cost) : "—"}</td>}
                         {REORDER.map((k) => (
                           <td className="num" key={k}>
