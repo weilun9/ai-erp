@@ -1,4 +1,5 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import qrcode from "qrcode-generator";
 import { api } from "../api";
 import { useSession } from "../session";
 
@@ -31,6 +32,8 @@ interface Props {
   totals: [string, string, boolean?][];        // label, value, emphasised
   remark?: string | null;
   signatures?: string[];
+  /** Validated by LHDN: its UUID and the QR link are printed on the document. */
+  einvoice?: { uuid: string | null; share_url: string | null; validated_at: string | null; environment: string } | null;
 }
 
 let companyOnce: Promise<Company | null> | null = null;
@@ -46,6 +49,13 @@ export function PrintSheet(p: Props) {
     loadCompany().then(setCompany);
   }, []);
   const c = company;
+  const qr = useMemo(() => {
+    if (!p.einvoice?.share_url) return null;
+    const code = qrcode(0, "M");
+    code.addData(p.einvoice.share_url);
+    code.make();
+    return code.createSvgTag({ cellSize: 3, margin: 0, scalable: true });
+  }, [p.einvoice?.share_url]);
   const notFinal = p.status === "DRAFT" ? t("printDraft") : p.status === "VOIDED" ? t("printVoided") : null;
 
   return (
@@ -118,6 +128,22 @@ export function PrintSheet(p: Props) {
           ))}
         </dl>
       </section>
+
+      {p.einvoice?.uuid && (
+        <section className="sheet-einv">
+          {qr && <div className="sheet-qr" dangerouslySetInnerHTML={{ __html: qr }} />}
+          <div>
+            <div className="sheet-label">{t("einvPaperTitle")}</div>
+            <div>UUID {p.einvoice.uuid}</div>
+            {p.einvoice.validated_at && (
+              <div>{t("einvValidated")} {p.einvoice.validated_at.slice(0, 16).replace("T", " ")} UTC</div>
+            )}
+            <div className="sheet-small">
+              {p.einvoice.environment === "simulated" ? t("einvPaperSim") : t("einvPaperScan")}
+            </div>
+          </div>
+        </section>
+      )}
 
       {p.signatures && p.signatures.length > 0 && (
         <section className="sheet-sign">

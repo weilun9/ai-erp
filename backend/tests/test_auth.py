@@ -132,7 +132,7 @@ def test_garbage_bearer_is_rejected(world, client) -> None:
 def test_me_for_owner(world, client) -> None:
     me = client.get("/api/v1/me", headers=login(client, "boss")).json()
     assert [t["code"] for t in me["tags"]] == ["owner"]
-    assert me["tags"][0]["name"] == "老板"
+    assert me["tags"][0]["name"] == "Owner"
     assert me["all_locations"] is True
     assert [loc["code"] for loc in me["locations"]] == ["HQ", "S2", "S3"]
     assert "pur.doc.post" in me["permissions"]

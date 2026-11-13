@@ -96,10 +96,10 @@ def _reads() -> frozenset[str]:
 TAG_TEMPLATES: dict[str, TagTemplate] = {
     t.code: t
     for t in (
-        TagTemplate("owner", "老板", "#d4a017", True, frozenset(PERMISSIONS)),
+        TagTemplate("owner", "Owner", "#d4a017", True, frozenset(PERMISSIONS)),
         TagTemplate(
             "clerk",
-            "书记",
+            "Clerk",
             "#1677ff",
             False,
             (_match("md.", "pur.", "sal.", "fin.", "inv.", "core.issue.") - {"md.setup.manage"})
@@ -117,7 +117,7 @@ TAG_TEMPLATES: dict[str, TagTemplate] = {
         ),
         TagTemplate(
             "accountant",
-            "会计",
+            "Accountant",
             "#52c41a",
             True,
             (_reads() - {"core.issue.read", "audit.read"})
@@ -126,7 +126,7 @@ TAG_TEMPLATES: dict[str, TagTemplate] = {
         ),
         TagTemplate(
             "cashier",
-            "收银员",
+            "Cashier",
             "#fa8c16",
             False,
             frozenset(
@@ -144,7 +144,7 @@ TAG_TEMPLATES: dict[str, TagTemplate] = {
         ),
         TagTemplate(
             "admin",
-            "系统管理员",
+            "System admin",
             "#722ed1",
             True,
             _match("core.company.", "core.location.", "core.user.")

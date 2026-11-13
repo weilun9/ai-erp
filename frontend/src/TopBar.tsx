@@ -3,6 +3,9 @@ import { Link, NavLink, useLocation, useNavigate } from "react-router-dom";
 import { useSession } from "./session";
 import { useWaiting } from "./pos/sync";
 
+// any one of these opens the Settings page (it shows the tabs the user may see)
+const SETTINGS_PERMS = ["md.setup.read", "core.user.read", "core.tag.read", "core.device.manage", "core.company.read"];
+
 export function TopBar() {
   const { me, t, can, logout, offline } = useSession();
   const waiting = useWaiting();
@@ -65,6 +68,7 @@ export function TopBar() {
         {offline && <span className="badge red" title={t("offlineHint")}>{t("offline")}</span>}
         {waiting > 0 && <span className="badge amber">{waiting} {t("waitingUpload")}</span>}
         <span>{me?.display_name}</span>
+        {SETTINGS_PERMS.some(can) && <Link className="chip-btn" to="/settings">{t("settings")}</Link>}
         <button className="chip-btn" onClick={logout}>{t("logout")}</button>
         <div className="avatar" aria-hidden>{initials}</div>
       </div>

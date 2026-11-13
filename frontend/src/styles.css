@@ -413,3 +413,15 @@ select.input { appearance: auto; }
 /* delivery order -> invoice: choose lines and quantities */
 .pick-box { display: flex; flex-direction: column; gap: 8px; padding: 14px 16px; border-radius: 18px;
   background: rgba(255, 255, 255, 0.6); border: 1px solid var(--glass-line); }
+
+/* settings */
+.add-row { display: flex; gap: 12px; align-items: flex-end; flex-wrap: wrap; padding-top: 12px;
+  border-top: 1px dashed rgba(29, 39, 51, 0.12); }
+.add-row .doc-head { flex: 1; min-width: 240px; }
+.perm-list { display: flex; flex-wrap: wrap; gap: 4px; }
+.perm-list code { font-size: 12px; padding: 2px 8px; border-radius: 8px; background: rgba(255, 255, 255, 0.7); }
+@media (max-width: 640px) { .settings-tabs { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; } }
+/* e-invoice block on paper */
+.sheet-einv { display: flex; gap: 14px; align-items: center; margin-top: 18px; break-inside: avoid; }
+.sheet-qr { width: 96px; height: 96px; flex: none; }
+.sheet-qr svg { width: 100%; height: 100%; display: block; }

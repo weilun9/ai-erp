@@ -12,6 +12,7 @@ import { Accounts } from "./pages/Accounts";
 import { Issues } from "./pages/Issues";
 import { PartyForm, PartyList } from "./pages/Parties";
 import { ItemForm } from "./pages/ItemForm";
+import { Settings } from "./pages/Settings";
 import { Till } from "./pages/Till";
 import { useCallback, useState } from "react";
 import { useOutboxSync } from "./pos/sync";
@@ -58,6 +59,7 @@ export function App() {
           <Route path="/parties/:type" element={<PartyList />} />
           <Route path="/parties/:type/:id" element={<PartyForm />} />
           <Route path="/items/edit/:id" element={<ItemForm />} />
+          <Route path="/settings" element={<Settings />} />
           <Route path="/docs/:kind/:id" element={<DocForm />} />
           <Route path="/till" element={<Till />} />
           <Route path="*" element={<Navigate to="/" replace />} />

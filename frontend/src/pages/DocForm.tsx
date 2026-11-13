@@ -8,6 +8,8 @@ import { KINDS, STATUS_COLOR, isKind } from "../docs/kinds";
 import type { Kind, KindDef } from "../docs/kinds";
 import { amt, errorText, isNum, round2, today, warnText } from "../docs/shared";
 import { PrintSheet } from "../docs/PrintSheet";
+import { EinvoicePanel } from "../docs/EinvoicePanel";
+import type { Einvoice } from "../docs/EinvoicePanel";
 import type { PrintParty } from "../docs/PrintSheet";
 import type { Warning } from "../docs/shared";
 import { PayForm } from "./PayForm";
@@ -99,6 +101,7 @@ function Form({ def, id }: { def: KindDef; id: string }) {
   const [invoices, setInvoices] = useState<{ id: string; doc_no: string; doc_date: string; total: string }[]>([]);
   const [voidReason, setVoidReason] = useState("");
   const [voiding, setVoiding] = useState(false);
+  const [einv, setEinv] = useState<Einvoice | null>(null);
   // delivery order -> invoice: DO line id -> quantity to invoice now (null = picker closed)
   const [pick, setPick] = useState<Record<string, string> | null>(null);
   const items = useRef(new Map<string, Item>());
@@ -681,8 +684,14 @@ function Form({ def, id }: { def: KindDef; id: string }) {
         )}
       </section>
     </div>
+    {doc && doc.status === "POSTED" && (def.kind === "sales-invoice" || def.kind === "customer-cn") && (
+      <div className="docform no-print" style={{ marginTop: 18 }}>
+        <EinvoicePanel docType={def.kind === "sales-invoice" ? "INV" : "CN"} docId={doc.id} onChange={setEinv} />
+      </div>
+    )}
     {doc && (
       <PrintSheet
+        einvoice={einv?.status === "VALID" ? einv : null}
         title={t(def.kind).toUpperCase()}
         docNo={doc.doc_no}
         status={doc.status}

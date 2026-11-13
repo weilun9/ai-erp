@@ -55,6 +55,8 @@ def encode(document: dict[str, Any]) -> Encoded:
 
 def share_url(environment: str, uuid: str, long_id: str) -> str:
     """Public validation link LHDN prints as the QR code on the invoice."""
+    if environment not in ENVIRONMENTS:  # the demo site's stand-in: say so in the QR itself
+        return f"SIMULATED e-invoice (public demo, not valid with LHDN) {uuid} / {long_id}"
     return f"{ENVIRONMENTS[environment]['portal']}/{uuid}/share/{long_id}"
 
 
@@ -186,6 +188,10 @@ def get_client() -> MyInvoisClient | None:
         return _override
     s = get_settings()
     if not (s.myinvois_client_id and s.myinvois_client_secret):
+        if s.demo_mode:  # public demo: a stand-in that never talks to LHDN
+            from app.services.myinvois_sim import SimulatedMyInvois
+
+            return SimulatedMyInvois()  # type: ignore[return-value]
         return None
     if _cached is None:
         _cached = MyInvoisClient(

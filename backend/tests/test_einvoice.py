@@ -396,3 +396,31 @@ def test_client_logs_in_again_when_the_token_expires_early() -> None:
     assert c.details("ABC")["status"] == "Valid"
     assert calls == {"login": 2, "api": 2}
     assert str(c.http.base_url) == "https://api.myinvois.hasil.gov.my"
+
+
+@pytest.mark.db
+def test_public_demo_uses_a_stand_in_for_lhdn(ready, client, monkeypatch) -> None:
+    """DEMO_MODE with no MyInvois credentials: the whole flow works, nothing leaves the
+    server, and what it issues says it is simulated."""
+    from app.core.config import get_settings
+
+    myinvois.reset_client()
+    monkeypatch.setattr(get_settings(), "demo_mode", True)
+    inv = _invoice(client, ready)
+    e = _submit(client, ready, "INV", inv["id"]).json()
+    assert e["status"] == "SUBMITTED" and e["environment"] == "simulated"
+    assert e["uuid"].startswith("SIM") and len(e["uuid"]) == 26
+
+    e = client.post(f"{E}/{e['id']}/refresh", headers=ready["h"]).json()
+    assert e["status"] == "VALID" and e["validated_at"]
+    assert e["share_url"].startswith("SIMULATED e-invoice") and e["uuid"] in e["share_url"]
+
+    e = client.post(f"{E}/{e['id']}/cancel", json={"reason": "demo"}, headers=ready["h"]).json()
+    assert e["status"] == "CANCELLED"
+
+
+@pytest.mark.db
+def test_without_demo_mode_there_is_no_stand_in(ready, client) -> None:
+    myinvois.reset_client()
+    inv = _invoice(client, ready)
+    assert _submit(client, ready, "INV", inv["id"]).status_code != 200

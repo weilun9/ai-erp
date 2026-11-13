@@ -22,7 +22,7 @@ def test_tags_list_shows_builtin_tags_with_colors_and_counts(world, client) -> N
     assert resp.status_code == 200
     tags = {t["code"]: t for t in resp.json()["items"]}
     assert set(tags) == {"owner", "clerk", "accountant", "cashier", "admin"}
-    assert tags["clerk"]["name"] == "书记"
+    assert tags["clerk"]["name"] == "Clerk"
     assert tags["clerk"]["color"].startswith("#")
     assert tags["owner"]["user_count"] == 1
     assert tags["clerk"]["user_count"] == 1
