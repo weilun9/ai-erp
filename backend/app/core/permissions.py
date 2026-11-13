@@ -61,6 +61,9 @@ PERMISSIONS: dict[str, str] = {
     # reports / accounting
     "report.run": "Run predefined reports",
     "acc.period.close": "Month-end close and accounting export",
+    "acc.read": "View the chart of accounts, journals and financial statements",
+    "acc.journal.create": "Post and void manual journal entries",
+    "acc.account.manage": "Add and edit accounts in the chart of accounts",
     # sensitive fields
     "field.cost.read": "See cost price, average cost and margin",
     "field.finance.read": "See receivable / payable balances",
@@ -122,7 +125,13 @@ TAG_TEMPLATES: dict[str, TagTemplate] = {
             True,
             (_reads() - {"core.issue.read", "audit.read"})
             | _match("field.")
-            | {"report.run", "acc.period.close", "ai.chat.use"},
+            | {
+                "report.run",
+                "acc.period.close",
+                "acc.journal.create",
+                "acc.account.manage",
+                "ai.chat.use",
+            },
         ),
         TagTemplate(
             "cashier",

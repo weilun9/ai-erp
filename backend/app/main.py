@@ -2,6 +2,7 @@ from fastapi import APIRouter, FastAPI, Request
 from fastapi.responses import JSONResponse
 
 from app.api.v1 import (
+    accounting,
     ai,
     auth,
     company,
@@ -91,6 +92,7 @@ def create_app() -> FastAPI:
     v1.include_router(masterdata.router)
     v1.include_router(purchasing.router)
     v1.include_router(supnotes.router)
+    v1.include_router(accounting.router)
     v1.include_router(sales.router)
     v1.include_router(einvoice.router)
     v1.include_router(finance.router)

@@ -332,6 +332,15 @@ select.input { appearance: auto; }
 .open-docs summary { cursor: pointer; color: var(--ink-soft); font-size: 14px; padding: 6px 0; }
 .open-docs .list { margin-top: 8px; }
 
+/* accounting */
+.linkish { background: none; border: 0; padding: 0; color: #1f5f99; cursor: pointer; font: inherit; text-decoration: underline; }
+.stat-row { display: flex; gap: 12px; flex-wrap: wrap; }
+.stat-row > div { flex: 1 1 140px; display: flex; flex-direction: column; gap: 2px; padding: 10px 14px;
+  border-radius: 14px; background: rgba(255, 255, 255, 0.55); }
+.stat-row b { font-size: 1.25rem; }
+.stat-row b.neg { color: #c0392b; }
+.table tr.grand-row td { border-top: 2px solid #1d2733; }
+.table tr.sub-row td { background: rgba(255, 255, 255, 0.45); font-size: 0.9em; }
 /* accounts */
 .table.doc-lines tr.picked td { background: rgba(47, 127, 193, 0.10); }
 .table.doc-lines tr.knock-row td { background: rgba(255, 255, 255, 0.55); padding: 10px 14px; }

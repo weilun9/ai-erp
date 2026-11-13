@@ -2,7 +2,7 @@ from sqlalchemy import MetaData
 from sqlalchemy.orm import DeclarativeBase
 
 # Business data is split into PostgreSQL schemas by module (see design doc section 6).
-SCHEMAS = ("core", "md", "pur", "sal", "inv", "fin", "ai", "audit")
+SCHEMAS = ("core", "md", "pur", "sal", "inv", "fin", "ai", "audit", "acc")
 
 NAMING_CONVENTION = {
     "ix": "ix_%(column_0_label)s",

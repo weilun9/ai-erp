@@ -39,6 +39,7 @@ export function TopBar() {
           {t("finance")}
         </NavLink>
       )}
+      {can("acc.read") && <NavLink to="/accounting">{t("accounting")}</NavLink>}
       {can("md.item.read") && <NavLink to="/items">{t("items")}</NavLink>}
       {can("ai.chat.use") && <NavLink to="/butler">{t("butler")}</NavLink>}
     </>

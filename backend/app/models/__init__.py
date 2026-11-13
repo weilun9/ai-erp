@@ -1,5 +1,6 @@
 """Import every model module so Base.metadata is complete (Alembic autogenerate)."""
 
+from app.models.acc import Account, Journal, JournalLine  # noqa: F401
 from app.models.ai import Conversation, Message, PendingAction, Usage  # noqa: F401
 from app.models.audit import EventLog  # noqa: F401
 from app.models.core import (  # noqa: F401

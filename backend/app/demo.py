@@ -41,7 +41,7 @@ API = "/api/v1"
 PASSWORD = os.environ.get("DEMO_PASSWORD", "demo-password-2026")
 TODAY = date.today()
 BACKEND = Path(__file__).resolve().parents[1]
-SCHEMAS = ("core", "md", "pur", "sal", "inv", "fin", "ai", "audit")
+SCHEMAS = ("core", "md", "pur", "sal", "inv", "fin", "ai", "audit", "acc")
 
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8")
@@ -549,6 +549,44 @@ def main() -> None:
         f"{inv['InvoicePeriod'][0]['EndDate'][0]['_']}"
     )
     say(f"Would LHDN reject it? {[x['message'] for x in ubl['problems']] or 'no'}")
+
+    chapter(13, "The books: every document above is already in the general ledger")
+    accs = {x["system_key"]: x["id"] for x in office.get("/accounting/accounts")["items"]}
+    office.post(
+        "/accounting/journals",
+        {
+            "journal_date": TODAY.replace(month=1, day=1).isoformat(),
+            "memo": "Opening capital paid into the bank",
+            "lines": [
+                {"account_id": accs["BANK"], "debit": "10000"},
+                {"account_id": accs["CAPITAL"], "credit": "10000"},
+            ],
+        },
+    )
+    say("Journal voucher: owner's RM10,000 capital into the bank (the only entry by hand)")
+    tb = office.get("/accounting/trial-balance", as_of=TODAY.isoformat())
+    say(
+        f"Trial balance: debits RM{float(tb['total_debit']):.2f} = "
+        f"credits RM{float(tb['total_credit']):.2f}"
+    )
+    if tb["total_debit"] != tb["total_credit"]:
+        raise SystemExit("Trial balance does not balance")
+    pl = office.get(
+        "/accounting/profit-and-loss",
+        date_from=TODAY.replace(month=1, day=1).isoformat(),
+        date_to=TODAY.isoformat(),
+    )
+    say(
+        f"This year: net sales RM{float(pl['net_sales']):.2f}, gross profit "
+        f"RM{float(pl['gross_profit']):.2f}, net profit RM{float(pl['net_profit']):.2f}"
+    )
+    bs = office.get("/accounting/balance-sheet", as_of=TODAY.isoformat())
+    if not bs["balanced"]:
+        raise SystemExit("Balance sheet does not balance")
+    say(
+        f"Balance sheet: assets RM{float(bs['total_assets']):.2f} = liabilities "
+        f"RM{float(bs['total_liabilities']):.2f} + equity RM{float(bs['total_equity']):.2f}"
+    )
 
     print(f"\nDone. Data kept in database '{DEMO_DB}'. Explore it with the API docs:")
     print("   set POSTGRES_DB=erp_demo, run uvicorn app.main:app, open /docs, log in as owner")

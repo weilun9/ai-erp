@@ -13,6 +13,8 @@ DEFAULT_PREFIX = {
     "SDN": "DN",
     "SCA": "SCA",
     "SRF": "SRF",
+    "JNL": "JNL",
+    "JV": "JV",
     "QT": "QT",
     "DO": "DO",
     "INV": "INV",

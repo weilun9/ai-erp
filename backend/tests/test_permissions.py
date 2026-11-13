@@ -13,7 +13,9 @@ def test_tag_templates_match_design_doc() -> None:
     # Cashiers never see cost price.
     assert "field.cost.read" not in t["cashier"].permissions
     # Accountants only report; they do not create or post documents, nor handle issues.
-    assert not {c for c in t["accountant"].permissions if c.endswith((".create", ".post"))}
+    # read-only on business documents; journal vouchers are the accountant's own work
+    acct_writes = {c for c in t["accountant"].permissions if c.endswith((".create", ".post"))}
+    assert acct_writes == {"acc.journal.create"}
     assert "core.issue.handle" not in t["accountant"].permissions
     # Clerks and owners handle problem documents.
     assert "core.issue.handle" in t["clerk"].permissions
