@@ -1,7 +1,9 @@
 """Step 31: general ledger - journals from documents (and their voids), manual journal
 vouchers, trial balance, profit and loss, balance sheet, account ledger."""
 
+from datetime import datetime
 from decimal import Decimal
+from zoneinfo import ZoneInfo
 
 import pytest
 
@@ -13,6 +15,8 @@ pytestmark = pytest.mark.db
 
 store = test_sales.store  # 2 GRNs posted: MILO 48 pcs for RM 72.00 (avg 1.50), supplier NESTLE
 ACC = "/api/v1/accounting"
+# Voids are booked on the shop's (Malaysian) business day, which can be a day after UTC.
+BIZ = datetime.now(ZoneInfo("Asia/Kuala_Lumpur")).date().isoformat()
 
 
 def _accounts(client, h):
@@ -21,7 +25,7 @@ def _accounts(client, h):
 
 
 def _tb(client, h):
-    r = client.get(f"{ACC}/trial-balance", params={"as_of": TODAY}, headers=h).json()
+    r = client.get(f"{ACC}/trial-balance", params={"as_of": BIZ}, headers=h).json()
     assert r["total_debit"] == r["total_credit"], r
     return {row["code"]: Decimal(row["balance"]) for row in r["rows"]}
 
@@ -46,20 +50,20 @@ def test_sale_books_revenue_and_cost_and_void_reverses(store, client) -> None:
     acc = _accounts(client, h)
     inv = _posted(client, store, "sales-invoice", [milo(store, "10", unit_price="2.50")])
     pl = client.get(
-        f"{ACC}/profit-and-loss", params={"date_from": TODAY, "date_to": TODAY}, headers=h
+        f"{ACC}/profit-and-loss", params={"date_from": TODAY, "date_to": BIZ}, headers=h
     ).json()
     assert (pl["net_sales"], pl["gross_profit"], pl["net_profit"]) == ("25.00", "10.00", "10.00")
     tb = _tb(client, h)
     assert tb[acc["AR"]["code"]] == Decimal("25.00")
     assert tb[acc["INVENTORY"]["code"]] == Decimal("57.00")
 
-    bs = client.get(f"{ACC}/balance-sheet", params={"as_of": TODAY}, headers=h).json()
+    bs = client.get(f"{ACC}/balance-sheet", params={"as_of": BIZ}, headers=h).json()
     assert bs["balanced"] is True and bs["profit_to_date"] == "10.00"
 
     v = _do(client, store, "sales-invoice", inv, "void", reason="wrong customer")
     assert v.status_code == 200, v.text
     pl = client.get(
-        f"{ACC}/profit-and-loss", params={"date_from": TODAY, "date_to": TODAY}, headers=h
+        f"{ACC}/profit-and-loss", params={"date_from": TODAY, "date_to": BIZ}, headers=h
     ).json()
     assert pl["net_profit"] == "0.00"
     js = client.get(f"{ACC}/journals", params={"source_type": "INV"}, headers=h).json()
@@ -108,7 +112,7 @@ def test_manual_journal_rules(store, client) -> None:
     j = client.post(f"{ACC}/journals", json=capital, headers=h)
     assert j.status_code == 201, j.text
     assert j.json()["doc_no"].startswith("JV")
-    bs = client.get(f"{ACC}/balance-sheet", params={"as_of": TODAY}, headers=h).json()
+    bs = client.get(f"{ACC}/balance-sheet", params={"as_of": BIZ}, headers=h).json()
     assert bs["balanced"] is True and bs["total_equity"] == "1000.00"
 
     unbalanced = capital | {
@@ -133,7 +137,7 @@ def test_manual_journal_rules(store, client) -> None:
 
     ledger = client.get(
         f"{ACC}/ledger/{acc['BANK']['id']}",
-        params={"date_from": TODAY, "date_to": TODAY},
+        params={"date_from": TODAY, "date_to": BIZ},
         headers=h,
     ).json()
     assert [ln["debit"] for ln in ledger["lines"]] == ["1000.00", "0.00"]
@@ -160,7 +164,7 @@ def test_own_accounts_and_who_may_see_the_books(store, client) -> None:
     assert client.get(f"{ACC}/accounts", headers=clerk).status_code == 403
     acct = login(client, "acct")
     assert (
-        client.get(f"{ACC}/trial-balance", params={"as_of": TODAY}, headers=acct).status_code == 200
+        client.get(f"{ACC}/trial-balance", params={"as_of": BIZ}, headers=acct).status_code == 200
     )
 
 
