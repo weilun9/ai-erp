@@ -114,7 +114,7 @@ const en = {
   purchases: "Purchases",
   grn: "Goods received",
   "purchase-order": "Purchase order",
-  "supplier-cn": "Supplier credit note",
+  "supplier-cn": "Goods return (supplier CN)",
   supplier: "Supplier",
   newDoc: "New",
   draft: "Draft",
@@ -484,6 +484,22 @@ const en = {
   inclTaxHint: "Tick when the supplier's price already includes tax",
   paidSoFar: "Paid / knocked off",
   balanceLeft: "Balance",
+  // step 30: supplier debit notes, credit notes without goods, refunds
+  "supplier-dn": "Supplier debit note",
+  "supplier-adj": "Supplier credit note (no goods)",
+  "supplier-refund": "Supplier refund",
+  "hint_supplier-dn": "The supplier charges more (freight, under-billing). Adds to what we owe; pay it like an invoice.",
+  "hint_supplier-adj": "Price adjustment or rebate with no goods returned. Lowers what we owe; deduct it on a payment. Returned goods go on a goods return (supplier CN).",
+  "hint_supplier-refund": "Money the supplier paid back. Tick the credits it settles, or leave them empty to take the oldest first.",
+  noteDescription: "What it is for",
+  forInvoice: "For invoice no.",
+  amountExTax: "Amount (before tax)",
+  addLine: "Add a line",
+  refundCredits: "Credits this refund settles",
+  refundCreditsHint: "Supplier CNs, credit notes and overpayments still open. Leave all empty to take the oldest first.",
+  noOpenCredits: "This supplier owes us nothing right now.",
+  refundNow: "Refund now",
+  stillOpen: "Still open",
 };
 
 export type Key = keyof typeof en;

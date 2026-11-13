@@ -53,7 +53,7 @@ export function DocList({ area }: { area: Area }) {
         <div className="tabs">
           {kinds.map((k) => (
             <button key={k} className={k === kind ? "on" : ""}
-                    onClick={() => setParams({ kind: k }, { replace: true })}>{k === "grn" ? t(k) : `${t(k)}s`}</button>
+                    onClick={() => setParams({ kind: k }, { replace: true })}>{k === "grn" || t(k).endsWith(")") ? t(k) : `${t(k)}s`}</button>
           ))}
           {area === "sales" && can("md.customer.read") && (
             <Link className="tab-link" to="/parties/customer">{t("customers")}</Link>

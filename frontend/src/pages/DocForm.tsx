@@ -4,7 +4,7 @@ import { api, money, qty as fmtQty } from "../api";
 import type { Page } from "../api";
 import { useSession } from "../session";
 import { Picker } from "../docs/Picker";
-import { KINDS, STATUS_COLOR, isKind } from "../docs/kinds";
+import { KINDS, NOTE_KINDS, STATUS_COLOR, isKind } from "../docs/kinds";
 import type { Kind, KindDef } from "../docs/kinds";
 import { amt, errorText, isNum, round2, today, warnText } from "../docs/shared";
 import { PrintSheet } from "../docs/PrintSheet";
@@ -13,6 +13,7 @@ import type { Einvoice } from "../docs/EinvoicePanel";
 import type { PrintParty } from "../docs/PrintSheet";
 import type { Warning } from "../docs/shared";
 import { PayForm } from "./PayForm";
+import { NoteForm } from "./NoteForm";
 
 // One entry screen for quotations, DOs, sales invoices, customer CNs, GRNs and supplier CNs.
 // The server owns every number that matters (price lookup, tax, totals, credit and cost
@@ -89,6 +90,9 @@ export function DocForm() {
   const { kind: kindParam, id } = useParams();
   if (!isKind(kindParam)) return <section className="card glass">{"Unknown document type"}</section>;
   // keyed by kind only: saving a new document swaps "new" for its id without a remount
+  if ((NOTE_KINDS as readonly string[]).includes(kindParam)) {
+    return <NoteForm key={kindParam} def={KINDS[kindParam]} id={id ?? "new"} />;
+  }
   if (KINDS[kindParam].area === "finance") {
     return <PayForm key={kindParam} def={KINDS[kindParam]} id={id ?? "new"} />;
   }

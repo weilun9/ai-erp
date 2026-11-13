@@ -161,3 +161,58 @@ class PurchaseOrderLine(PurchaseLine, Base):
         ForeignKey("pur.po_h.id", ondelete="CASCADE"), index=True
     )
     header: Mapped[PurchaseOrder] = relationship(back_populates="lines")
+
+
+class NoteLine(UUIDPk):
+    """A money line on a supplier note: what it is for, the amount before tax, the tax."""
+
+    line_no: Mapped[int] = mapped_column(Integer)
+    description: Mapped[str] = mapped_column(String(200))
+    ref_doc_no: Mapped[str | None] = mapped_column(String(50))  # the invoice it concerns
+    amount: Mapped[Decimal] = mapped_column(Money)  # before tax
+    tax_code_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("md.tax_code.id"))
+    tax_rate: Mapped[Decimal] = mapped_column(Numeric(9, 4), server_default=text("0"))
+    line_tax: Mapped[Decimal] = mapped_column(Money, server_default=text("0"))
+    line_total: Mapped[Decimal] = mapped_column(Money)
+
+
+class SupplierDebitNote(PurchaseHeader, Base):
+    """The supplier charges more (under-billed, extra freight...): raises what we owe,
+    moves no stock. Paid like an invoice."""
+
+    __tablename__ = "supplier_dn_h"
+    lines: Mapped[list["SupplierDebitNoteLine"]] = relationship(
+        back_populates="header",
+        cascade="all, delete-orphan",
+        order_by="SupplierDebitNoteLine.line_no",
+    )
+
+
+class SupplierDebitNoteLine(NoteLine, Base):
+    __tablename__ = "supplier_dn_l"
+    __table_args__ = {"schema": "pur"}
+    header_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("pur.supplier_dn_h.id", ondelete="CASCADE"), index=True
+    )
+    header: Mapped[SupplierDebitNote] = relationship(back_populates="lines")
+
+
+class SupplierCreditAdj(PurchaseHeader, Base):
+    """A supplier credit note with no goods returned (price adjustment, rebate, short
+    delivery credited): lowers what we owe, moves no stock. Returns of goods are SupplierCn."""
+
+    __tablename__ = "supplier_adj_h"
+    lines: Mapped[list["SupplierCreditAdjLine"]] = relationship(
+        back_populates="header",
+        cascade="all, delete-orphan",
+        order_by="SupplierCreditAdjLine.line_no",
+    )
+
+
+class SupplierCreditAdjLine(NoteLine, Base):
+    __tablename__ = "supplier_adj_l"
+    __table_args__ = {"schema": "pur"}
+    header_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("pur.supplier_adj_h.id", ondelete="CASCADE"), index=True
+    )
+    header: Mapped[SupplierCreditAdj] = relationship(back_populates="lines")

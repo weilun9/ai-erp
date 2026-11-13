@@ -4,8 +4,12 @@
 export type Area = "sales" | "purchase" | "finance";
 
 export const SALES_KINDS = ["sales-invoice", "delivery-order", "quotation", "customer-cn"] as const;
-export const PURCHASE_KINDS = ["grn", "purchase-order", "supplier-cn"] as const;
-export const FINANCE_KINDS = ["receipt", "supplier-payment"] as const;
+export const PURCHASE_KINDS = [
+  "grn", "purchase-order", "supplier-cn", "supplier-dn", "supplier-adj",
+] as const;
+export const FINANCE_KINDS = ["receipt", "supplier-payment", "supplier-refund"] as const;
+// money-only supplier documents with their own simple screen (NoteForm)
+export const NOTE_KINDS = ["supplier-dn", "supplier-adj", "supplier-refund"] as const;
 export type Kind =
   | (typeof SALES_KINDS)[number] | (typeof PURCHASE_KINDS)[number] | (typeof FINANCE_KINDS)[number];
 
@@ -59,6 +63,9 @@ export const KINDS: Record<Kind, KindDef> = {
   }),
   grn: purchase("grn", { priceRequired: true }),
   "supplier-cn": purchase("supplier-cn"),
+  "supplier-dn": purchase("supplier-dn", { api: "/supplier-notes/debit-note" }),
+  "supplier-adj": purchase("supplier-adj", { api: "/supplier-notes/credit-adjustment" }),
+  "supplier-refund": { ...finance("supplier-refund", "supplier"), api: "/supplier-notes/refund" },
 };
 
 export const isKind = (k: string | undefined): k is Kind => !!k && k in KINDS;

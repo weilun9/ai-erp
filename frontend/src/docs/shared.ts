@@ -6,6 +6,7 @@ import type { T } from "../i18n";
 export const DOC_ROUTE: Record<string, string> = {
   INV: "sales-invoice", CN: "customer-cn", OR: "receipt",
   GRN: "grn", SCN: "supplier-cn", PV: "supplier-payment",
+  SDN: "supplier-dn", SCA: "supplier-adj", SRF: "supplier-refund", PO: "purchase-order",
 };
 
 /** A plain 2-decimal number for tables on paper (the column heading carries the currency). */

@@ -44,6 +44,8 @@ from app.models import (
     SalesInvoice,
     Supplier,
     SupplierCn,
+    SupplierCreditAdj,
+    SupplierDebitNote,
     SupplierFee,
     SupplierPayment,
     SupplierPaymentLine,
@@ -263,14 +265,25 @@ def _match_lines(db: Session, p: Principal, doc) -> None:
         ln.matched_type = ln.matched_id = ln.matched_no = ln.match_status = None
         if ln.line_type not in ("INVOICE", "CN"):
             continue
-        model, code = (Grn, "GRN") if ln.line_type == "INVOICE" else (SupplierCn, "SCN")
-        found = _find(db, p, model, doc.supplier_id, ln.ref_no)
+        # an invoice line may name a GRN or a debit note; a CN line a goods return or a
+        # credit note without goods
+        pairs = (
+            ((Grn, "GRN"), (SupplierDebitNote, "SDN"))
+            if ln.line_type == "INVOICE"
+            else ((SupplierCn, "SCN"), (SupplierCreditAdj, "SCA"))
+        )
+        found, code = None, None
+        for model, c in pairs:
+            found = _find(db, p, model, doc.supplier_id, ln.ref_no)
+            if found is not None:
+                code = c
+                break
         if found is None:
             ln.match_status = "NOT_FOUND"
             continue
         ln.matched_type, ln.matched_id, ln.matched_no = code, found.id, found.doc_no
         ready = found.status == "POSTED" and (
-            code == "GRN" or found.completeness in ("PROVISIONAL", "COMPLETE")
+            code != "SCN" or found.completeness in ("PROVISIONAL", "COMPLETE")
         )
         if not ready:
             ln.match_status = "NOT_READY"
@@ -550,13 +563,13 @@ def _post_payment(db: Session, p: Principal, doc) -> None:
             info |= {"doc_no": found.doc_no, "doc_total": found.total}
         if ln.line_type == "INVOICE":
             if ln.match_status in ("MATCHED", "AMOUNT_DIFF"):
-                debits.append(("GRN", found, ln.amount))
+                debits.append((ln.matched_type, found, ln.amount))
         elif ln.line_type == "CN":
             if ln.match_status == "MATCHED":
-                if found.completeness == "PROVISIONAL":
+                if getattr(found, "completeness", None) == "PROVISIONAL":
                     found.completeness = "COMPLETE"  # confirmed by the supplier's advice
-                credits.append(("SCN", found, ln.amount))
-            elif ln.match_status == "AMOUNT_DIFF":
+                credits.append((ln.matched_type, found, ln.amount))
+            elif ln.match_status == "AMOUNT_DIFF" and ln.matched_type == "SCN":
                 found.completeness = "DISPUTED"
         elif ln.line_type == "FEE":
             tax = taxes.get(ln.tax_code_id) if ln.tax_code_id else None

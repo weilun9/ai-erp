@@ -20,6 +20,7 @@ from app.api.v1 import (
     sales,
     stock,
     stockdocs,
+    supnotes,
 )
 from app.core.config import get_settings
 from app.core.errors import install_error_handlers
@@ -89,6 +90,7 @@ def create_app() -> FastAPI:
     v1.include_router(people.router)
     v1.include_router(masterdata.router)
     v1.include_router(purchasing.router)
+    v1.include_router(supnotes.router)
     v1.include_router(sales.router)
     v1.include_router(einvoice.router)
     v1.include_router(finance.router)

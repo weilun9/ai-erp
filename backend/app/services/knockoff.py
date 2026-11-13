@@ -1,7 +1,8 @@
 """Knock-off (对冲) and party balances.
 
-A party's balance is debit documents (sales invoice, GRN: they raise what is owed) minus
-credit documents (receipt, customer CN, supplier CN, fee, supplier payment). A knock-off
+A party's balance is debit documents (sales invoice, GRN, supplier debit note, supplier
+refund: they raise what is owed) minus credit documents (receipt, customer CN, supplier CN
+and credit adjustment, fee, supplier payment). A knock-off
 ties an amount of one debit document to one credit document of the same party; what is
 left on a document is its open amount (an unpaid invoice, an advance, an unused CN).
 
@@ -27,8 +28,11 @@ from app.models import (
     Knockoff,
     SalesInvoice,
     SupplierCn,
+    SupplierCreditAdj,
+    SupplierDebitNote,
     SupplierFee,
     SupplierPayment,
+    SupplierRefund,
 )
 from app.services import audit
 from app.services.auth import Principal
@@ -60,6 +64,9 @@ DOCS: dict[str, DocType] = {
         DocType("SCN", SupplierCn, "S", "C", "total"),
         DocType("FEE", SupplierFee, "S", "C", "amount"),
         DocType("PV", SupplierPayment, "S", "C", "amount"),
+        DocType("SDN", SupplierDebitNote, "S", "D", "total"),
+        DocType("SCA", SupplierCreditAdj, "S", "C", "total"),
+        DocType("SRF", SupplierRefund, "S", "D", "amount"),
     )
 }
 PARTY_TYPES = {"customer": "C", "supplier": "S"}

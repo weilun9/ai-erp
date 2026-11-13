@@ -212,3 +212,32 @@ class DocIssue(UUIDPk, Base):
     resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     resolved_by: Mapped[uuid.UUID | None] = mapped_column(Uuid)
     resolution: Mapped[str | None] = mapped_column(String(500))
+
+
+class SupplierRefund(MoneyHeader, Base):
+    """Money back from a supplier: settles what they owe us (CNs, credit adjustments,
+    an overpayment / advance). Lines name the credits refunded; none = oldest first."""
+
+    __tablename__ = "supplier_refund_h"
+    __table_args__ = _header_args()
+    supplier_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("md.supplier.id"), index=True)
+    supplier_ref_no: Mapped[str | None] = mapped_column(String(50))  # their refund note no.
+    lines: Mapped[list["SupplierRefundLine"]] = relationship(
+        back_populates="header",
+        cascade="all, delete-orphan",
+        order_by="SupplierRefundLine.line_no",
+    )
+
+
+class SupplierRefundLine(UUIDPk, Base):
+    __tablename__ = "supplier_refund_l"
+    __table_args__ = {"schema": "fin"}
+    header_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("fin.supplier_refund_h.id", ondelete="CASCADE"), index=True
+    )
+    line_no: Mapped[int] = mapped_column(Integer)
+    doc_type: Mapped[str] = mapped_column(String(10))  # SCN / SCA / PV
+    doc_id: Mapped[uuid.UUID] = mapped_column(Uuid)
+    doc_no: Mapped[str | None] = mapped_column(String(30))
+    amount: Mapped[Decimal] = mapped_column(Money)
+    header: Mapped[SupplierRefund] = relationship(back_populates="lines")

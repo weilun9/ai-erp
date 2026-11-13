@@ -24,6 +24,8 @@ from app.models.fin import (  # noqa: F401
     SupplierFee,
     SupplierPayment,
     SupplierPaymentLine,
+    SupplierRefund,
+    SupplierRefundLine,
 )
 from app.models.inbox import BankTxn, InboxExtraction, InboxFile  # noqa: F401
 from app.models.inv import StockBalance, StockLedger  # noqa: F401
@@ -64,6 +66,10 @@ from app.models.pur import (  # noqa: F401
     PurchaseOrderLine,
     SupplierCn,
     SupplierCnLine,
+    SupplierCreditAdj,
+    SupplierCreditAdjLine,
+    SupplierDebitNote,
+    SupplierDebitNoteLine,
 )
 from app.models.sal import (  # noqa: F401
     CustomerCn,
