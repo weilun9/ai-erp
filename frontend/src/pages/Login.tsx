@@ -48,7 +48,6 @@ export function Login() {
       <form className="login glass" onSubmit={(e) => { e.preventDefault(); enter(username, password); }}>
         <div className="row">
           <div className="brand">
-            <div className="logo">AI</div>
             <h1>{t("appName")}</h1>
           </div>
         </div>

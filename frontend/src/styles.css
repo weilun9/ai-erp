@@ -91,8 +91,10 @@ a { color: inherit; }
   background: linear-gradient(135deg, #34D399, #06B6D4); color: #0A0A0B; font-weight: 700;
   text-decoration: none;
 }
-.brand-name { display: none; font-weight: 700; letter-spacing: -0.01em; }
-@media (max-width: 960px) { .brand-name { display: inline; } }
+.brand-name {
+  font-weight: 600; font-size: 17px; letter-spacing: -0.02em; white-space: nowrap;
+  text-decoration: none; color: var(--ink);
+}
 .toggle {
   display: inline-flex; padding: 4px; gap: 2px; background: var(--glass-strong);
   border: 1px solid var(--glass-line); border-radius: 999px; box-shadow: var(--shadow);
@@ -388,7 +390,7 @@ input[type="date"].input { color-scheme: dark; }
 .accounts .table th, .accounts .table td { white-space: nowrap; }
 .accounts .table tr.knock-row td { white-space: normal; }
 /* seven page links: on a narrow desktop the search box gives way (the Items page searches too) */
-@media (min-width: 961px) and (max-width: 1240px) { .topbar .search { display: none; } }
+@media (min-width: 961px) and (max-width: 1400px) { .topbar .search { display: none; } }
 
 /* home: quick actions */
 .quick-actions { display: flex; flex-wrap: wrap; gap: 8px; }

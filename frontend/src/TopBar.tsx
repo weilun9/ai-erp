@@ -49,8 +49,7 @@ export function TopBar() {
     <>
     <header className="topbar">
       <div className="brand">
-        <Link to="/" className="logo" aria-label={t("appName")}>AI</Link>
-        <span className="brand-name">{t("appName")}</span>
+        <Link to="/" className="brand-name">{t("appName")}</Link>
         <nav className="nav">{links}</nav>
       </div>
       <form
