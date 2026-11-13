@@ -21,17 +21,25 @@ from app.localization import pack
 from app.models import (
     Company,
     Customer,
+    Grn,
+    GrnLine,
     Item,
+    ItemAttribute,
     ItemBarcode,
     ItemCategory,
+    ItemLocation,
     ItemUom,
+    Location,
+    StockBalance,
     Supplier,
     TaxCode,
     Uom,
 )
+from app.models.md import ATTRIBUTE_KINDS
 from app.services import audit
 from app.services.auth import Principal
 
+PRICE_LEVELS = ("price_2", "price_3", "price_4", "price_5")
 FIELD_PERMS = {"cost": "field.cost.read", "pii": "field.pii.read", "finance": "field.finance.read"}
 
 CUSTOMER_PII = (
@@ -185,6 +193,61 @@ def create_category(db: Session, p: Principal, *, code: str, name: str) -> ItemC
     return c
 
 
+# --- item attributes (brand / group / colour / size / user-defined) ------------------------
+
+ATTR_FIELDS = {
+    "brand_id": "BRAND",
+    "group_id": "GROUP",
+    "color_id": "COLOR",
+    "size_id": "SIZE",
+    "udf1_id": "UDF1",
+    "udf2_id": "UDF2",
+    "udf3_id": "UDF3",
+}
+
+
+def list_attributes(db: Session, p: Principal, kind: str | None = None) -> list[ItemAttribute]:
+    p.require("md.item.read")
+    stmt = select(ItemAttribute).where(ItemAttribute.company_id == p.company_id)
+    if kind:
+        stmt = stmt.where(ItemAttribute.kind == kind)
+    return list(db.scalars(stmt.order_by(ItemAttribute.kind, ItemAttribute.code)))
+
+
+def create_attribute(db: Session, p: Principal, *, kind: str, code: str, name: str):
+    p.require("md.setup.manage")
+    if kind not in ATTRIBUTE_KINDS:
+        raise BadRequest("Unknown attribute kind", {"allowed": list(ATTRIBUTE_KINDS)})
+    clash = db.scalar(
+        select(ItemAttribute.id).where(
+            ItemAttribute.company_id == p.company_id,
+            ItemAttribute.kind == kind,
+            func.upper(ItemAttribute.code) == code.upper(),
+        )
+    )
+    if clash:
+        raise Conflict("Code already exists", {"code": code, "kind": kind})
+    a = _new(ItemAttribute, p, kind=kind, code=code, name=name)
+    db.add(a)
+    db.flush()
+    audit.record(db, p, "create", "md.item_attribute", a.id, after=audit.snapshot(a))
+    db.commit()
+    return a
+
+
+def update_attribute(db: Session, p: Principal, attr_id: uuid.UUID, version: int, **v: Any):
+    p.require("md.setup.manage")
+    a = _own(db, p, ItemAttribute, attr_id, "Attribute")
+    _check_version(a, version)
+    before = audit.snapshot(a)
+    _assign(a, v)
+    _touch(a, p)
+    db.flush()
+    audit.record(db, p, "update", "md.item_attribute", a.id, before=before, after=audit.snapshot(a))
+    db.commit()
+    return a
+
+
 # --- items --------------------------------------------------------------------------------
 
 
@@ -202,6 +265,7 @@ def search_items(
     *,
     q: str | None = None,
     category_id: uuid.UUID | None = None,
+    attribute_id: uuid.UUID | None = None,
     active: bool | None = True,
     page: int = 1,
     page_size: int = 50,
@@ -223,6 +287,8 @@ def search_items(
         )
     if category_id:
         stmt = stmt.where(Item.category_id == category_id)
+    if attribute_id:
+        stmt = stmt.where(or_(*(getattr(Item, f) == attribute_id for f in ATTR_FIELDS)))
     if active is not None:
         stmt = stmt.where(Item.is_active.is_(active))
     return _page(db, stmt.order_by(Item.code), page, page_size)
@@ -258,6 +324,20 @@ def _validate_item_refs(db: Session, p: Principal, v: dict[str, Any]) -> None:
             _own(db, p, TaxCode, v[key], "Tax code")
     if v.get("category_id"):
         _own(db, p, ItemCategory, v["category_id"], "Category")
+    for field, kind in ATTR_FIELDS.items():
+        if v.get(field):
+            a = _own(db, p, ItemAttribute, v[field], "Attribute")
+            if a.kind != kind:
+                raise BadRequest("Attribute is of the wrong kind", {"field": field, "kind": a.kind})
+    for field in ("min_qty", "max_qty", "reorder_level", "reorder_qty"):
+        if v.get(field) is not None and Decimal(v[field]) < 0:
+            raise BadRequest("Reorder quantities cannot be negative", {"field": field})
+    if (
+        v.get("min_qty") is not None
+        and v.get("max_qty") is not None
+        and Decimal(v["min_qty"]) > Decimal(v["max_qty"])
+    ):
+        raise BadRequest("Minimum quantity is above the maximum")
     cls = v.get("einvoice_classification")
     if cls and not _country_pack(db, p).validate_classification(cls):
         raise BadRequest("E-invoice classification must be a 3-digit code")
@@ -289,6 +369,8 @@ def _apply_uoms(
         row = existing.get(u["uom"]) or ItemUom(uom=u["uom"])
         row.factor = Decimal(u["factor"])
         row.selling_price = u.get("selling_price")
+        for lvl in PRICE_LEVELS:
+            setattr(row, lvl, u.get(lvl))
         if can_cost:  # users who cannot see cost keep whatever cost was there
             row.purchase_price = u.get("purchase_price")
         merged.append(row)
@@ -343,6 +425,7 @@ def _item_snapshot(item: Item) -> dict[str, Any]:
                 "uom": u.uom,
                 "factor": u.factor,
                 "selling_price": u.selling_price,
+                **{lvl: getattr(u, lvl) for lvl in PRICE_LEVELS},
                 "purchase_price": u.purchase_price,
             }
             for u in item.uoms
@@ -399,6 +482,7 @@ def update_item(
                 "uom": u.uom,
                 "factor": u.factor,
                 "selling_price": u.selling_price,
+                **{lvl: getattr(u, lvl) for lvl in PRICE_LEVELS},
                 "purchase_price": u.purchase_price if p.has(FIELD_PERMS["cost"]) else None,
             }
             for u in item.uoms
@@ -416,6 +500,190 @@ def update_item(
     audit.record(db, p, "update", "md.item", item.id, before=before, after=_item_snapshot(item))
     db.commit()
     return get_item(db, p, item.id)
+
+
+REORDER_FIELDS = ("min_qty", "max_qty", "reorder_level", "reorder_qty")
+
+
+def _visible_locations(db: Session, p: Principal) -> list[Location]:
+    stmt = select(Location).where(Location.company_id == p.company_id, Location.is_active)
+    if p.location_ids is not None:
+        stmt = stmt.where(Location.id.in_(p.location_ids))
+    return list(db.scalars(stmt.order_by(Location.code)))
+
+
+def item_overview(db: Session, p: Principal, item_id: uuid.UUID) -> dict[str, Any]:
+    """Everything DynaMod shows around an item: stock per shop with its reorder settings,
+    who supplied it, and the recent purchase prices. Cost fields need field.cost.read."""
+    item = get_item(db, p, item_id)
+    can_cost = p.has(FIELD_PERMS["cost"])
+    locs = _visible_locations(db, p)
+    loc_ids = [loc.id for loc in locs]
+    bal = {
+        b.location_id: b
+        for b in db.scalars(
+            select(StockBalance).where(
+                StockBalance.item_id == item.id, StockBalance.location_id.in_(loc_ids)
+            )
+        )
+    }
+    settings = {
+        s.location_id: s
+        for s in db.scalars(select(ItemLocation).where(ItemLocation.item_id == item.id))
+    }
+    locations = []
+    for loc in locs:
+        b, st = bal.get(loc.id), settings.get(loc.id)
+        qty = b.qty if b else Decimal(0)
+        eff = {
+            f: (getattr(st, f) if st and getattr(st, f) is not None else getattr(item, f))
+            for f in REORDER_FIELDS
+        }
+        row: dict[str, Any] = {
+            "location_id": loc.id,
+            "location_code": loc.code,
+            "location_name": loc.name,
+            "qty": qty,
+            "own": {f: getattr(st, f) if st else None for f in REORDER_FIELDS},
+            "effective": eff,
+            "shelf": st.shelf if st else None,
+            "below_reorder": eff["reorder_level"] is not None and qty <= eff["reorder_level"],
+        }
+        if can_cost:
+            row["avg_cost"] = b.avg_cost if b else None
+        locations.append(row)
+
+    posted = (
+        select(GrnLine, Grn, Supplier)
+        .join(Grn, Grn.id == GrnLine.header_id)
+        .join(Supplier, Supplier.id == Grn.supplier_id)
+        .where(Grn.company_id == p.company_id, Grn.status == "POSTED", GrnLine.item_id == item.id)
+    )
+    if p.location_ids is not None:
+        posted = posted.where(Grn.location_id.in_(p.location_ids))
+    history = db.execute(posted.order_by(Grn.doc_date.desc(), Grn.doc_no.desc()).limit(200)).all()
+    suppliers: dict[uuid.UUID, dict[str, Any]] = {}
+    for ln, h, sup in history:
+        s_row = suppliers.setdefault(
+            sup.id,
+            {
+                "supplier_id": sup.id,
+                "supplier_code": sup.code,
+                "supplier_name": sup.name,
+                "last_date": h.doc_date,
+                "last_doc_no": h.doc_no,
+                "documents": 0,
+                "base_qty": Decimal(0),
+                **({"last_unit_cost": ln.unit_cost} if can_cost else {}),
+            },
+        )
+        s_row["documents"] += 1
+        s_row["base_qty"] += ln.base_qty
+    prices = (
+        [
+            {
+                "doc_id": h.id,
+                "doc_no": h.doc_no,
+                "doc_date": h.doc_date,
+                "supplier_code": sup.code,
+                "uom": ln.uom,
+                "qty": ln.qty,
+                "unit_price": ln.unit_price,
+                "discount_pct": ln.discount_pct,
+                "unit_cost": ln.unit_cost,
+            }
+            for ln, h, sup in history[:30]
+        ]
+        if can_cost
+        else []
+    )
+    return {
+        "item_id": item.id,
+        "locations": locations,
+        "total_qty": sum((r["qty"] for r in locations), Decimal(0)),
+        "suppliers": list(suppliers.values()),
+        "purchase_history": prices,
+        "cost_hidden": not can_cost,
+    }
+
+
+def set_item_locations(
+    db: Session, p: Principal, item_id: uuid.UUID, rows: list[dict[str, Any]]
+) -> dict[str, Any]:
+    """Replace the per-shop settings for the shops in `rows` (all-empty row = remove)."""
+    p.require("md.item.manage")
+    item = get_item(db, p, item_id)
+    visible = {loc.id for loc in _visible_locations(db, p)}
+    for r in rows:
+        if r["location_id"] not in visible:
+            raise NotFound("Location not found")
+        _validate_item_refs(db, p, {f: r.get(f) for f in REORDER_FIELDS})
+        st = db.get(ItemLocation, (item.id, r["location_id"]))
+        empty = all(r.get(f) is None for f in REORDER_FIELDS) and not r.get("shelf")
+        before = audit.snapshot(st) if st else None
+        if empty:
+            if st:
+                db.delete(st)
+        else:
+            if st is None:
+                st = ItemLocation(
+                    item_id=item.id, location_id=r["location_id"], company_id=p.company_id
+                )
+                db.add(st)
+            for f in REORDER_FIELDS:
+                setattr(st, f, r.get(f))
+            st.shelf = (r.get("shelf") or "").strip() or None
+        db.flush()
+        audit.record(
+            db,
+            p,
+            "update",
+            "md.item_location",
+            item.id,
+            before=before,
+            after=audit.snapshot(st) if not empty else None,
+        )
+    db.commit()
+    db.expire_all()  # read back what the database stored (numeric scale)
+    return item_overview(db, p, item.id)
+
+
+def copy_reorder_to_locations(
+    db: Session, p: Principal, *, item_id: uuid.UUID | None, fields: list[str]
+) -> int:
+    """DynaMod's "Update stock alert / reorder level to all locations": copy the item's own
+    values of `fields` into every shop's settings, for one item or (None) every item."""
+    p.require("md.item.manage")
+    bad = set(fields) - set(REORDER_FIELDS)
+    if bad or not fields:
+        raise BadRequest("Unknown fields", {"allowed": list(REORDER_FIELDS)})
+    items = (
+        [get_item(db, p, item_id)]
+        if item_id
+        else list(db.scalars(select(Item).where(Item.company_id == p.company_id, Item.is_active)))
+    )
+    locs = _visible_locations(db, p)
+    n = 0
+    for item in items:
+        for loc in locs:
+            st = db.get(ItemLocation, (item.id, loc.id))
+            if st is None:
+                st = ItemLocation(item_id=item.id, location_id=loc.id, company_id=p.company_id)
+                db.add(st)
+            for f in fields:
+                setattr(st, f, getattr(item, f))
+            n += 1
+    db.flush()
+    audit.record(
+        db,
+        p,
+        "update",
+        "md.item_location",
+        item_id or p.company_id,
+        after={"copied": fields, "items": len(items), "locations": len(locs)},
+    )
+    db.commit()
+    return n
 
 
 # --- suppliers / customers ----------------------------------------------------------------

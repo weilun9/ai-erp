@@ -41,8 +41,10 @@ from app.models.kb import KbChunk, KbDocument  # noqa: F401
 from app.models.md import (  # noqa: F401
     Customer,
     Item,
+    ItemAttribute,
     ItemBarcode,
     ItemCategory,
+    ItemLocation,
     ItemUom,
     Supplier,
     TaxCode,

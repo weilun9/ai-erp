@@ -44,3 +44,14 @@ def low_stock(
     limit: Annotated[int, Query(ge=1, le=200)] = 50,
 ) -> dict[str, Any]:
     return reports.low_stock(db, p, threshold=threshold, location_id=location_id, limit=limit)
+
+
+@router.get("/reorder")
+def reorder(
+    p: CurrentUser,
+    db: DB,
+    location_id: uuid.UUID | None = None,
+    limit: Annotated[int, Query(ge=1, le=500)] = 200,
+) -> dict[str, Any]:
+    """Items at or below their reorder level, with a suggested order quantity."""
+    return reports.reorder(db, p, location_id=location_id, limit=limit)

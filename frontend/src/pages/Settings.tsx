@@ -12,11 +12,12 @@ import type { Key } from "../i18n";
 // the company profile that goes on printed documents and e-invoices.
 // On the public demo the server refuses changes to people, devices and the company.
 
-type Tab = "tax" | "units" | "categories" | "users" | "tags" | "devices" | "company";
+type Tab = "tax" | "units" | "categories" | "groups" | "users" | "tags" | "devices" | "company";
 const TABS: { id: Tab; label: Key; perm: string }[] = [
   { id: "tax", label: "setTax", perm: "md.setup.read" },
   { id: "units", label: "setUnits", perm: "md.setup.read" },
   { id: "categories", label: "setCategories", perm: "md.setup.read" },
+  { id: "groups", label: "setItemGroups", perm: "md.setup.read" },
   { id: "users", label: "setUsers", perm: "core.user.read" },
   { id: "tags", label: "setTags", perm: "core.tag.read" },
   { id: "devices", label: "setDevices", perm: "core.device.manage" },
@@ -71,6 +72,7 @@ export function Settings() {
       {tab === "tax" && <TaxCodes />}
       {tab === "units" && <Units />}
       {tab === "categories" && <Categories />}
+      {tab === "groups" && <ItemGroups />}
       {tab === "users" && <Users />}
       {tab === "tags" && <Tags />}
       {tab === "devices" && <Devices />}
@@ -171,6 +173,56 @@ function Categories() {
       {can("md.setup.manage") && (
         <AddRow busy={busy} onAdd={add} ready={!!f.code.trim() && !!f.name.trim()}>
           <Inp label={t("code")} value={f.code} max={30} onChange={(x) => setF({ ...f, code: x })} />
+          <Inp label={t("name")} value={f.name} max={100} wide onChange={(x) => setF({ ...f, name: x })} />
+        </AddRow>
+      )}
+      {error && <div className="error" role="alert">{error}</div>}
+    </section>
+  );
+}
+
+const KINDS = ["BRAND", "GROUP", "COLOR", "SIZE", "UDF1", "UDF2", "UDF3"] as const;
+
+/** Brand / group / colour / size / user groups 1-3: the lists an item's grouping picks from. */
+function ItemGroups() {
+  const { t, can } = useSession();
+  const [kind, setKind] = useState<(typeof KINDS)[number]>("BRAND");
+  const { rows, error, busy, run } = useList<{ id: string; code: string; name: string; is_active: boolean; version: number }>(
+    `/item-attributes?kind=${kind}`, paged);
+  const [f, setF] = useState({ code: "", name: "" });
+  const add = async () => {
+    if (await run(() => api("/item-attributes", {
+      method: "POST", body: { kind, code: f.code.trim().toUpperCase(), name: f.name.trim() } }))) {
+      setF({ code: "", name: "" });
+    }
+  };
+  const manage = can("md.setup.manage");
+  return (
+    <section className="card glass">
+      <div className="tabs" style={{ margin: 0 }}>
+        {KINDS.map((k) => (
+          <button key={k} className={k === kind ? "on" : ""} onClick={() => setKind(k)}>{t(`attr${k}` as Key)}</button>
+        ))}
+      </div>
+      <ListTable loading={!rows} head={[t("code"), t("name"), ""]} empty={t("noResults")}>
+        {(rows ?? []).map((r) => (
+          <tr key={r.id} className={r.is_active ? "" : "muted"}>
+            <td>{r.code}</td><td>{r.name}</td>
+            <td>
+              {manage && (
+                <button className="chip-btn" disabled={busy}
+                        onClick={() => run(() => api(`/item-attributes/${r.id}`, {
+                          method: "PATCH", body: { version: r.version, is_active: !r.is_active } }))}>
+                  {t(r.is_active ? "deactivate" : "activate")}
+                </button>
+              )}
+            </td>
+          </tr>
+        ))}
+      </ListTable>
+      {manage && (
+        <AddRow busy={busy} onAdd={add} ready={!!f.code.trim() && !/\s/.test(f.code.trim()) && !!f.name.trim()}>
+          <Inp label={t("code")} value={f.code} max={20} onChange={(x) => setF({ ...f, code: x })} />
           <Inp label={t("name")} value={f.name} max={100} wide onChange={(x) => setF({ ...f, name: x })} />
         </AddRow>
       )}

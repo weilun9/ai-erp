@@ -144,6 +144,7 @@ const TAX: FieldDef[] = [
 const TERMS_CUSTOMER: FieldDef[] = [
   { key: "term_days", label: "termDays", kind: "int" },
   { key: "credit_limit", label: "creditLimit", kind: "money" },
+  { key: "price_level", label: "priceLevel", kind: "int" },
 ];
 const TERMS_SUPPLIER: FieldDef[] = [{ key: "term_days", label: "termDays", kind: "int" }];
 // supplier habits the intake checks and the AI butler read

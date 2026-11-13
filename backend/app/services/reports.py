@@ -21,6 +21,7 @@ from app.models import (
     CustomerCn,
     CustomerCnLine,
     Item,
+    ItemLocation,
     Location,
     PosLine,
     PosSale,
@@ -210,3 +211,67 @@ def low_stock(
             for b, i, loc in rows
         ],
     }
+
+
+def reorder(
+    db: Session,
+    p: Principal,
+    *,
+    location_id: uuid.UUID | None = None,
+    limit: int = 200,
+) -> dict[str, Any]:
+    """Items at or below their reorder level (shop setting, else the item's), with a
+    suggested order quantity: up to the maximum if set, else the reorder quantity, else
+    back up to the reorder level."""
+    p.require("report.run", "inv.balance.read")
+    locations = _location_filter(p, location_id)
+    il = ItemLocation
+    level = func.coalesce(il.reorder_level, Item.reorder_level)
+    max_q = func.coalesce(il.max_qty, Item.max_qty)
+    re_q = func.coalesce(il.reorder_qty, Item.reorder_qty)
+    qty = func.coalesce(StockBalance.qty, 0)
+    stmt = (
+        select(Item, Location, qty, level, max_q, re_q, il.shelf)
+        .join(Location, Location.company_id == Item.company_id)
+        .outerjoin(il, (il.item_id == Item.id) & (il.location_id == Location.id))
+        .outerjoin(
+            StockBalance,
+            (StockBalance.item_id == Item.id) & (StockBalance.location_id == Location.id),
+        )
+        .where(
+            Item.company_id == p.company_id,
+            Item.is_active.is_(True),
+            Location.is_active.is_(True),
+            level.is_not(None),
+            qty <= level,
+        )
+    )
+    if locations is not None:
+        stmt = stmt.where(Location.id.in_(locations))
+    rows = db.execute(
+        stmt.order_by(Location.code, (qty - level), Item.code).limit(max(1, min(limit, 500)))
+    ).all()
+    out = []
+    for item, loc, q, lv, mx, rq, shelf in rows:
+        if mx is not None and mx > q:
+            suggest = mx - q
+        elif rq:
+            suggest = rq
+        else:
+            suggest = max(lv - q, ZERO)
+        out.append(
+            {
+                "item_id": item.id,
+                "item_code": item.code,
+                "item_name": item.name,
+                "uom": item.base_uom,
+                "location_id": loc.id,
+                "location": loc.code,
+                "shelf": shelf,
+                "qty": q4(q),
+                "reorder_level": lv,
+                "max_qty": mx,
+                "suggested_qty": q4(suggest),
+            }
+        )
+    return {"rows": out}

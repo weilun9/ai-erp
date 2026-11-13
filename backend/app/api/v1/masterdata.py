@@ -2,8 +2,9 @@
 
 import re
 import uuid
+from datetime import date
 from decimal import Decimal
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal
 
 from fastapi import APIRouter, Query
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -17,6 +18,7 @@ router = APIRouter(tags=["master data"])
 
 Code = Annotated[str, Field(min_length=1, max_length=30, pattern=r"^\S+$")]
 Money = Annotated[Decimal, Field(ge=0, max_digits=18, decimal_places=4)]
+Qty = Annotated[Decimal, Field(ge=0, max_digits=18, decimal_places=4)]
 PageNo = Annotated[int, Query(ge=1)]
 PageSize = Annotated[int, Query(ge=1, le=200)]
 EXCLUDE_UNSET = {"response_model_exclude_unset": True}
@@ -124,6 +126,52 @@ def create_category(body: CategoryIn, p: CurrentUser, db: DB) -> CategoryOut:
     return CategoryOut.model_validate(svc.create_category(db, p, **body.model_dump()))
 
 
+# --- item attributes ----------------------------------------------------------------------
+
+AttrKind = Literal["BRAND", "GROUP", "COLOR", "SIZE", "UDF1", "UDF2", "UDF3"]
+
+
+class AttributeOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: uuid.UUID
+    kind: str
+    code: str
+    name: str
+    is_active: bool
+    version: int
+
+
+class AttributeIn(BaseModel):
+    kind: AttrKind
+    code: Code
+    name: str = Field(min_length=1, max_length=100)
+
+
+class AttributePatch(Versioned):
+    name: str | None = Field(default=None, min_length=1, max_length=100)
+    is_active: bool | None = None
+
+
+@router.get("/item-attributes")
+def list_attributes(p: CurrentUser, db: DB, kind: AttrKind | None = None) -> Page[AttributeOut]:
+    rows = svc.list_attributes(db, p, kind)
+    return Page(items=[AttributeOut.model_validate(r) for r in rows], total=len(rows))
+
+
+@router.post("/item-attributes", status_code=201)
+def create_attribute(body: AttributeIn, p: CurrentUser, db: DB) -> AttributeOut:
+    return AttributeOut.model_validate(svc.create_attribute(db, p, **body.model_dump()))
+
+
+@router.patch("/item-attributes/{attr_id}")
+def update_attribute(
+    attr_id: uuid.UUID, body: AttributePatch, p: CurrentUser, db: DB
+) -> AttributeOut:
+    v = body.model_dump(exclude_unset=True)
+    version = v.pop("version")
+    return AttributeOut.model_validate(svc.update_attribute(db, p, attr_id, version, **v))
+
+
 # --- items --------------------------------------------------------------------------------
 
 
@@ -131,6 +179,10 @@ class ItemUomOut(BaseModel):
     uom: str
     factor: Decimal
     selling_price: Decimal | None
+    price_2: Decimal | None = None
+    price_3: Decimal | None = None
+    price_4: Decimal | None = None
+    price_5: Decimal | None = None
     purchase_price: Decimal | None = sensitive("cost")
 
 
@@ -152,6 +204,22 @@ class ItemOut(BaseModel):
     einvoice_classification: str
     track_batch: bool
     is_active: bool
+    description_2: str | None = None
+    article_no: str | None = None
+    brand_id: uuid.UUID | None = None
+    group_id: uuid.UUID | None = None
+    color_id: uuid.UUID | None = None
+    size_id: uuid.UUID | None = None
+    udf1_id: uuid.UUID | None = None
+    udf2_id: uuid.UUID | None = None
+    udf3_id: uuid.UUID | None = None
+    sales_note: str | None = None
+    purchase_note: str | None = None
+    min_qty: Decimal | None = None
+    max_qty: Decimal | None = None
+    reorder_level: Decimal | None = None
+    reorder_qty: Decimal | None = None
+    min_selling_price: Decimal | None = None
     version: int
     uoms: list[ItemUomOut]
     barcodes: list[BarcodeOut]
@@ -174,6 +242,10 @@ class ItemUomIn(BaseModel):
     uom: str = Field(min_length=1, max_length=10)
     factor: Decimal = Field(gt=0, max_digits=18, decimal_places=4)
     selling_price: Money | None = None
+    price_2: Money | None = None
+    price_3: Money | None = None
+    price_4: Money | None = None
+    price_5: Money | None = None
     purchase_price: Money | None = None
 
 
@@ -192,6 +264,22 @@ class ItemIn(BaseModel):
     sales_tax_code_id: uuid.UUID | None = None
     einvoice_classification: str = Field(default="022", pattern=r"^\d{3}$")
     track_batch: bool = False
+    description_2: str | None = Field(default=None, max_length=200)
+    article_no: str | None = Field(default=None, max_length=50)
+    brand_id: uuid.UUID | None = None
+    group_id: uuid.UUID | None = None
+    color_id: uuid.UUID | None = None
+    size_id: uuid.UUID | None = None
+    udf1_id: uuid.UUID | None = None
+    udf2_id: uuid.UUID | None = None
+    udf3_id: uuid.UUID | None = None
+    sales_note: str | None = Field(default=None, max_length=2000)
+    purchase_note: str | None = Field(default=None, max_length=2000)
+    min_qty: Qty | None = None
+    max_qty: Qty | None = None
+    reorder_level: Qty | None = None
+    reorder_qty: Qty | None = None
+    min_selling_price: Money | None = None
     uoms: list[ItemUomIn] = Field(min_length=1)
     barcodes: list[BarcodeIn] = []
 
@@ -207,6 +295,22 @@ class ItemPatch(Versioned):
     einvoice_classification: str | None = Field(default=None, pattern=r"^\d{3}$")
     track_batch: bool | None = None
     is_active: bool | None = None
+    description_2: str | None = Field(default=None, max_length=200)
+    article_no: str | None = Field(default=None, max_length=50)
+    brand_id: uuid.UUID | None = None
+    group_id: uuid.UUID | None = None
+    color_id: uuid.UUID | None = None
+    size_id: uuid.UUID | None = None
+    udf1_id: uuid.UUID | None = None
+    udf2_id: uuid.UUID | None = None
+    udf3_id: uuid.UUID | None = None
+    sales_note: str | None = Field(default=None, max_length=2000)
+    purchase_note: str | None = Field(default=None, max_length=2000)
+    min_qty: Qty | None = None
+    max_qty: Qty | None = None
+    reorder_level: Qty | None = None
+    reorder_qty: Qty | None = None
+    min_selling_price: Money | None = None
     uoms: list[ItemUomIn] | None = Field(default=None, min_length=1)
     barcodes: list[BarcodeIn] | None = None
 
@@ -230,12 +334,20 @@ def search_items(
     db: DB,
     q: str | None = None,
     category_id: uuid.UUID | None = None,
+    attribute_id: uuid.UUID | None = None,
     active: bool | None = True,
     page: PageNo = 1,
     page_size: PageSize = 50,
 ) -> Page[ItemOut]:
     rows, total = svc.search_items(
-        db, p, q=q, category_id=category_id, active=active, page=page, page_size=page_size
+        db,
+        p,
+        q=q,
+        category_id=category_id,
+        attribute_id=attribute_id,
+        active=active,
+        page=page,
+        page_size=page_size,
     )
     return Page(items=[_item_out(i, p) for i in rows], total=total)
 
@@ -265,6 +377,105 @@ def lookup_barcode(
 @router.get("/items/{item_id}", **EXCLUDE_UNSET)
 def get_item(item_id: uuid.UUID, p: CurrentUser, db: DB) -> ItemOut:
     return _item_out(svc.get_item(db, p, item_id), p)
+
+
+class ReorderSet(BaseModel):
+    min_qty: Decimal | None = None
+    max_qty: Decimal | None = None
+    reorder_level: Decimal | None = None
+    reorder_qty: Decimal | None = None
+
+
+class ItemLocationOut(BaseModel):
+    location_id: uuid.UUID
+    location_code: str
+    location_name: str
+    qty: Decimal
+    avg_cost: Decimal | None = sensitive("cost")
+    own: ReorderSet
+    effective: ReorderSet
+    shelf: str | None
+    below_reorder: bool
+
+
+class ItemSupplierOut(BaseModel):
+    supplier_id: uuid.UUID
+    supplier_code: str
+    supplier_name: str
+    last_date: date
+    last_doc_no: str | None
+    documents: int
+    base_qty: Decimal
+    last_unit_cost: Decimal | None = sensitive("cost")
+
+
+class PurchasePriceOut(BaseModel):
+    doc_id: uuid.UUID
+    doc_no: str | None
+    doc_date: date
+    supplier_code: str
+    uom: str
+    qty: Decimal
+    unit_price: Decimal
+    discount_pct: Decimal
+    unit_cost: Decimal
+
+
+class ItemOverviewOut(BaseModel):
+    item_id: uuid.UUID
+    locations: list[ItemLocationOut]
+    total_qty: Decimal
+    suppliers: list[ItemSupplierOut]
+    purchase_history: list[PurchasePriceOut]
+    cost_hidden: bool
+
+
+class ItemLocationIn(BaseModel):
+    location_id: uuid.UUID
+    min_qty: Qty | None = None
+    max_qty: Qty | None = None
+    reorder_level: Qty | None = None
+    reorder_qty: Qty | None = None
+    shelf: str | None = Field(default=None, max_length=30)
+
+
+class CopyReorderIn(BaseModel):
+    item_id: uuid.UUID | None = Field(default=None, description="None = every active item")
+    fields: list[Literal["min_qty", "max_qty", "reorder_level", "reorder_qty"]] = Field(
+        min_length=1
+    )
+
+
+def _overview_out(ov, p) -> ItemOverviewOut:
+    return ItemOverviewOut(
+        item_id=ov["item_id"],
+        locations=[shape(ItemLocationOut, r, p) for r in ov["locations"]],
+        total_qty=ov["total_qty"],
+        suppliers=[shape(ItemSupplierOut, r, p) for r in ov["suppliers"]],
+        purchase_history=[PurchasePriceOut(**r) for r in ov["purchase_history"]],
+        cost_hidden=ov["cost_hidden"],
+    )
+
+
+@router.get("/items/{item_id}/overview", **EXCLUDE_UNSET)
+def item_overview(item_id: uuid.UUID, p: CurrentUser, db: DB) -> ItemOverviewOut:
+    """Stock per shop with reorder settings, suppliers who supplied it, purchase prices."""
+    return _overview_out(svc.item_overview(db, p, item_id), p)
+
+
+@router.put("/items/{item_id}/locations", **EXCLUDE_UNSET)
+def set_item_locations(
+    item_id: uuid.UUID, body: list[ItemLocationIn], p: CurrentUser, db: DB
+) -> ItemOverviewOut:
+    rows = [r.model_dump() for r in body]
+    return _overview_out(svc.set_item_locations(db, p, item_id, rows), p)
+
+
+@router.post("/items/copy-reorder-to-locations")
+def copy_reorder(body: CopyReorderIn, p: CurrentUser, db: DB) -> dict[str, int]:
+    """Copy the item's reorder values to every shop (one item, or every item)."""
+    n = svc.copy_reorder_to_locations(db, p, item_id=body.item_id, fields=list(body.fields))
+    return {"updated": n}
 
 
 @router.post("/items", status_code=201, **EXCLUDE_UNSET)
@@ -386,6 +597,7 @@ class CustomerFields(PartyBase):
     email: str | None = Field(default=None, max_length=200)
     contact_person: str | None = Field(default=None, max_length=100)
     credit_limit: Money | None = None
+    price_level: int | None = Field(default=None, ge=1, le=5)
 
 
 class CustomerIn(CustomerFields):
@@ -420,6 +632,7 @@ class CustomerOut(BaseModel):
     contact_person: str | None = sensitive("pii")
     term_days: int
     credit_limit: Decimal | None = sensitive("finance")
+    price_level: int
     currency: str
     is_active: bool
     version: int
@@ -429,6 +642,9 @@ def _party_values(body: BaseModel) -> dict[str, Any]:
     v = body.model_dump(exclude_unset=True)
     if "profile" in v:
         v["profile"] = v["profile"] or {}
+    for key in ("term_days", "price_level", "currency", "country_code"):  # NOT NULL columns
+        if key in v and v[key] is None:
+            del v[key]
     return v
 
 

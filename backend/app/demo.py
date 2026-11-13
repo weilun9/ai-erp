@@ -187,21 +187,37 @@ def main() -> None:
 
     chapter(2, "Master data: items with carton/piece units, supplier, customer")
     taxes = {t["code"]: t["id"] for t in office.get("/tax-codes")["items"]}
+    attr = {
+        code: office.post("/item-attributes", {"kind": kind, "code": code, "name": name})["id"]
+        for kind, code, name in (
+            ("BRAND", "NESTLE", "Nestle"),
+            ("GROUP", "BEVERAGE", "Beverages"),
+            ("SIZE", "1KG", "1 kg"),
+        )
+    }
     milo = office.post(
         "/items",
         {
             "code": "MILO-1KG",
             "name": "Milo 1kg",
+            "description_2": "Chocolate malt drink powder",
+            "brand_id": attr["NESTLE"],
+            "group_id": attr["BEVERAGE"],
+            "size_id": attr["1KG"],
+            "reorder_level": "24",
+            "max_qty": "60",
+            "min_selling_price": "22.00",
             "base_uom": "PCS",
             "sales_tax_code_id": taxes["NA"],
             "barcodes": [{"barcode": "9556001000019", "uom": "PCS"}],
             "uoms": [
-                {"uom": "PCS", "factor": "1", "selling_price": "26.90"},
-                {"uom": "CTN", "factor": "12", "selling_price": "300.00"},
+                {"uom": "PCS", "factor": "1", "selling_price": "26.90", "price_2": "25.50"},
+                {"uom": "CTN", "factor": "12", "selling_price": "300.00", "price_2": "290.00"},
             ],
         },
     )["id"]
-    say("Milo 1kg: PCS RM 26.90, CTN of 12 RM 300.00")
+    say("Milo 1kg (brand Nestle, group Beverages): PCS RM 26.90, CTN of 12 RM 300.00;")
+    say("  wholesale price level 2: PCS RM 25.50 / CTN RM 290.00; reorder at 24, fill up to 60")
     hit = counter.get("/items/lookup", barcode="955600100001")
     found = hit["hits"][0]["item"]["code"]
     say(f"Scanner reads only 12 digits (no check digit) -> still finds {found}")

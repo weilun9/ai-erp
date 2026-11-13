@@ -33,6 +33,7 @@ export interface Warning { code: string; message: string; line?: number; [k: str
 const WARN_KEYS = {
   CREDIT_LIMIT: "warnCREDIT_LIMIT",
   BELOW_COST: "warnBELOW_COST",
+  BELOW_MIN_PRICE: "warnBELOW_MIN_PRICE",
   SUPPLIER_REF_FORMAT: "warnSUPPLIER_REF_FORMAT",
   SUPPLIER_REF_MISSING: "warnSUPPLIER_REF_MISSING",
   ADVANCE: "warnADVANCE",

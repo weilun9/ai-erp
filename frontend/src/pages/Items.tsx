@@ -57,6 +57,10 @@ export function Items() {
           <input className="input" style={{ flex: 1 }} value={text} placeholder={t("search")}
                  onChange={(e) => setText(e.target.value)} />
           <button className="round-btn" aria-label="search">⌕</button>
+          {can("report.run") && can("inv.balance.read") && (
+            <Link className="chip-btn" style={{ textDecoration: "none", whiteSpace: "nowrap" }}
+                  to="/reorder">{t("reorderReport")}</Link>
+          )}
           {can("md.item.manage") && (
             <Link className="btn" style={{ textDecoration: "none", whiteSpace: "nowrap" }}
                   to="/items/edit/new">+ {t("newDoc")}</Link>

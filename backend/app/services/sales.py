@@ -253,6 +253,8 @@ def _build_lines(
     }
     taxes = {t.id: t for t in db.scalars(select(TaxCode).where(TaxCode.company_id == p.company_id))}
     terms = _invoice_terms(db, ref_invoice_id) if k.key == "customer-cn" else {}
+    customer = db.get(Customer, customer_id)
+    level = customer.price_level if customer is not None else 1
     do_lines = (
         _do_lines(db, {ln["do_line_id"] for ln in lines if ln.get("do_line_id")})
         if k.key == "sales-invoice"
@@ -299,8 +301,8 @@ def _build_lines(
                 price, disc, source = q4(terms[item.id][0] * uom.factor), Decimal(0), "INVOICE"
             else:
                 price, source = Decimal(0), "MISSING"
-        elif uom.selling_price is not None:
-            price, source = uom.selling_price, "LIST"
+        elif (listed := level_price(uom, level)) is not None:
+            price, source = listed, "LIST"
         else:
             price, source = Decimal(0), "MISSING"
         rate = tax.rate if tax else Decimal(0)
@@ -419,6 +421,7 @@ def _validate_for_save(db: Session, p: Principal, k: Kind, doc) -> list[dict[str
     warnings: list[dict[str, Any]] = []
     if k.direction < 0 or k.key == "quotation":
         warnings += _below_cost(db, p, doc)
+        warnings += _below_min_price(db, doc)
     if k.key == "sales-invoice":
         customer = db.get(Customer, doc.customer_id)
         if customer.credit_limit is not None:
@@ -436,6 +439,48 @@ def _validate_for_save(db: Session, p: Principal, k: Kind, doc) -> list[dict[str
                     }
                 warnings.append(w)
     return warnings
+
+
+def level_price(uom: ItemUom, level: int):
+    """The customer's price level (2-5) if the unit has one, else price 1 (selling_price)."""
+    if level and level > 1:
+        v = getattr(uom, f"price_{level}", None)
+        if v is not None:
+            return v
+    return uom.selling_price
+
+
+def _below_min_price(db: Session, doc) -> list[dict[str, Any]]:
+    mins = dict(
+        db.execute(
+            select(Item.id, Item.min_selling_price).where(
+                Item.id.in_({ln.item_id for ln in doc.lines}),
+                Item.min_selling_price.is_not(None),
+            )
+        ).all()
+    )
+    low = [
+        ln
+        for ln in doc.lines
+        if ln.base_qty and ln.item_id in mins and ln.line_subtotal / ln.base_qty < mins[ln.item_id]
+    ]
+    if not low:
+        return []
+    return [
+        {
+            "code": "BELOW_MIN_PRICE",
+            "message": "Selling below the item's minimum selling price",
+            "lines": [ln.line_no for ln in low],
+            "detail": [
+                {
+                    "line": ln.line_no,
+                    "net_price_per_unit": str(q4(ln.line_subtotal / ln.base_qty)),
+                    "min_price": str(mins[ln.item_id]),
+                }
+                for ln in low
+            ],
+        }
+    ]
 
 
 def _below_cost(db: Session, p: Principal, doc) -> list[dict[str, Any]]:
