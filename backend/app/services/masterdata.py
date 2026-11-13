@@ -532,8 +532,10 @@ def item_overview(db: Session, p: Principal, item_id: uuid.UUID) -> dict[str, An
         for s in db.scalars(select(ItemLocation).where(ItemLocation.item_id == item.id))
     }
     from app.services.purchasing import on_order  # avoid an import cycle
+    from app.services.sales import on_sales_order
 
     ordered = on_order(db, p.company_id, [item.id], loc_ids)
+    promised = on_sales_order(db, p.company_id, [item.id], loc_ids)
     locations = []
     for loc in locs:
         b, st = bal.get(loc.id), settings.get(loc.id)
@@ -551,6 +553,7 @@ def item_overview(db: Session, p: Principal, item_id: uuid.UUID) -> dict[str, An
             "effective": eff,
             "shelf": st.shelf if st else None,
             "on_order": ordered.get((item.id, loc.id), Decimal(0)),
+            "on_sales_order": promised.get((item.id, loc.id), Decimal(0)),
             "below_reorder": eff["reorder_level"] is not None and qty <= eff["reorder_level"],
         }
         if can_cost:

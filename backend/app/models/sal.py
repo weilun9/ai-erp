@@ -24,6 +24,7 @@ from sqlalchemy.orm import Mapped, declared_attr, mapped_column, relationship
 
 from app.db.base import Base
 from app.models.mixins import AuditColumns, UUIDPk
+from app.models.pur import NoteLine
 
 Money = Numeric(18, 4)
 Qty = Numeric(18, 4)
@@ -113,6 +114,8 @@ class DeliveryOrderLine(SalesLine, Base):
     header_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("sal.do_h.id", ondelete="CASCADE"), index=True
     )
+    # Delivered against this sales order line.
+    so_line_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("sal.so_l.id"), index=True)
     header: Mapped[DeliveryOrder] = relationship(back_populates="lines")
 
 
@@ -132,6 +135,8 @@ class SalesInvoiceLine(SalesLine, Base):
     )
     # Invoiced from this DO line: the goods already left with the DO, so no stock moves.
     do_line_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("sal.do_l.id"), index=True)
+    # Invoiced straight from this sales order line (no DO in between).
+    so_line_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("sal.so_l.id"), index=True)
     header: Mapped[SalesInvoice] = relationship(back_populates="lines")
 
 
@@ -153,3 +158,47 @@ class CustomerCnLine(SalesLine, Base):
         ForeignKey("sal.customer_cn_h.id", ondelete="CASCADE"), index=True
     )
     header: Mapped[CustomerCn] = relationship(back_populates="lines")
+
+
+class SalesOrder(SalesHeader, Base):
+    """What the customer ordered. Never moves stock; "posted" = confirmed. DOs or invoices
+    fulfil its lines (in parts) until it is fully delivered or closed by hand."""
+
+    __tablename__ = "so_h"
+    delivery_date: Mapped[date | None] = mapped_column(Date)
+    closed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    closed_by: Mapped[uuid.UUID | None] = mapped_column(Uuid)
+    lines: Mapped[list["SalesOrderLine"]] = relationship(
+        back_populates="header", cascade="all, delete-orphan", order_by="SalesOrderLine.line_no"
+    )
+
+
+class SalesOrderLine(SalesLine, Base):
+    __tablename__ = "so_l"
+    __table_args__ = {"schema": "sal"}
+    header_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("sal.so_h.id", ondelete="CASCADE"), index=True
+    )
+    header: Mapped[SalesOrder] = relationship(back_populates="lines")
+
+
+class CustomerDebitNote(SalesHeader, Base):
+    """We charge the customer more (under-billed, delivery charge...): raises what they owe,
+    moves no stock. Paid like an invoice."""
+
+    __tablename__ = "customer_dn_h"
+    due_date: Mapped[date | None] = mapped_column(Date)
+    lines: Mapped[list["CustomerDebitNoteLine"]] = relationship(
+        back_populates="header",
+        cascade="all, delete-orphan",
+        order_by="CustomerDebitNoteLine.line_no",
+    )
+
+
+class CustomerDebitNoteLine(NoteLine, Base):
+    __tablename__ = "customer_dn_l"
+    __table_args__ = {"schema": "sal"}
+    header_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("sal.customer_dn_h.id", ondelete="CASCADE"), index=True
+    )
+    header: Mapped[CustomerDebitNote] = relationship(back_populates="lines")

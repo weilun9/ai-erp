@@ -3,13 +3,15 @@
 
 export type Area = "sales" | "purchase" | "finance";
 
-export const SALES_KINDS = ["sales-invoice", "delivery-order", "quotation", "customer-cn"] as const;
+export const SALES_KINDS = [
+  "sales-invoice", "sales-order", "delivery-order", "quotation", "customer-cn", "customer-dn",
+] as const;
 export const PURCHASE_KINDS = [
   "grn", "purchase-order", "supplier-cn", "supplier-dn", "supplier-adj",
 ] as const;
 export const FINANCE_KINDS = ["receipt", "supplier-payment", "supplier-refund"] as const;
 // money-only supplier documents with their own simple screen (NoteForm)
-export const NOTE_KINDS = ["supplier-dn", "supplier-adj", "supplier-refund"] as const;
+export const NOTE_KINDS = ["supplier-dn", "supplier-adj", "supplier-refund", "customer-dn"] as const;
 export type Kind =
   | (typeof SALES_KINDS)[number] | (typeof PURCHASE_KINDS)[number] | (typeof FINANCE_KINDS)[number];
 
@@ -49,8 +51,16 @@ export const KINDS: Record<Kind, KindDef> = {
   "supplier-payment": finance("supplier-payment", "supplier"),
   quotation: sales("quotation", {
     posts: false,
-    converts: [{ target: "delivery-order", from: "SAVED" }, { target: "sales-invoice", from: "SAVED" }],
+    converts: [
+      { target: "sales-order", from: "SAVED" },
+      { target: "delivery-order", from: "SAVED" },
+      { target: "sales-invoice", from: "SAVED" },
+    ],
   }),
+  "sales-order": sales("sales-order", {
+    converts: [{ target: "delivery-order", from: "POSTED" }, { target: "sales-invoice", from: "POSTED" }],
+  }),
+  "customer-dn": sales("customer-dn", { api: "/customer-notes/customer-debit-note" }),
   "delivery-order": sales("delivery-order", {
     converts: [{ target: "sales-invoice", from: "POSTED" }],
   }),

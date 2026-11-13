@@ -15,6 +15,8 @@ DEFAULT_PREFIX = {
     "SRF": "SRF",
     "JNL": "JNL",
     "JV": "JV",
+    "SO": "SO",
+    "CDN": "CDN",
     "QT": "QT",
     "DO": "DO",
     "INV": "INV",

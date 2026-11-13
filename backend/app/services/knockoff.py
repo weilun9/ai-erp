@@ -22,6 +22,7 @@ from sqlalchemy.orm import Session
 from app.core.errors import BadRequest, BusinessRule, DocState, NotFound
 from app.models import (
     CustomerCn,
+    CustomerDebitNote,
     CustomerReceipt,
     DocIssue,
     Grn,
@@ -67,6 +68,7 @@ DOCS: dict[str, DocType] = {
         DocType("SDN", SupplierDebitNote, "S", "D", "total"),
         DocType("SCA", SupplierCreditAdj, "S", "C", "total"),
         DocType("SRF", SupplierRefund, "S", "D", "amount"),
+        DocType("CDN", CustomerDebitNote, "C", "D", "total"),
     )
 }
 PARTY_TYPES = {"customer": "C", "supplier": "S"}

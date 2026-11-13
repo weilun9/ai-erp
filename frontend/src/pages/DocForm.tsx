@@ -33,6 +33,8 @@ interface LineOut {
   do_line_id?: string | null;
   invoiced_qty?: string;  // delivery order: already on saved or posted invoices
   received_qty?: string;  // purchase order: already on saved or posted GRNs
+  fulfilled_qty?: string; // sales order: already on saved or posted DOs / invoices
+  so_line_id?: string | null;
   price_incl_tax?: boolean;
   po_line_id?: string | null;
 }
@@ -45,7 +47,7 @@ interface DocOut {
   ref_invoice_id?: string | null; reason?: string | null;
   completeness?: string | null; ref_invoice_no?: string | null;
   source_kind?: string | null; void_reason: string | null;
-  expected_date?: string | null; closed_at?: string | null;
+  expected_date?: string | null; closed_at?: string | null; delivery_date?: string | null;
   supplier_do_no?: string | null; reference?: string | null; import_decl_no?: string | null;
   term_days?: number | null; header_discount?: string | null; rounding_adj?: string | null;
   paid?: string | null; balance?: string | null;
@@ -54,6 +56,7 @@ interface DocOut {
 interface Row {
   key: number; item: Item; uom: string; qty: string; unit_price: string; discount_pct: string;
   tax_code_id: string; remark: string; do_line_id: string | null; po_line_id?: string | null;
+  so_line_id?: string | null;
   incl?: boolean;        // purchase line: the price includes tax
   serverPrice?: string;  // what the server priced a line left on "auto"
   invoiced?: string;     // delivery order line: quantity already invoiced
@@ -61,7 +64,7 @@ interface Row {
 interface Head {
   doc_date: string; party: Party | null; location_id: string; ref_no: string; remark: string;
   valid_until: string; ref_invoice_id: string; reason: string; completeness: string;
-  ref_invoice_no: string; expected_date: string;
+  ref_invoice_no: string; expected_date: string; delivery_date: string;
   supplier_do_no: string; reference: string; import_decl_no: string; term_days: string;
   header_discount: string; rounding_adj: string;
 }
@@ -70,7 +73,7 @@ let nextKey = 1;
 
 const emptyHead = (): Head => ({
   doc_date: today(), party: null, location_id: "", ref_no: "", remark: "", valid_until: "",
-  ref_invoice_id: "", reason: "", completeness: "", ref_invoice_no: "", expected_date: "",
+  ref_invoice_id: "", reason: "", completeness: "", ref_invoice_no: "", expected_date: "", delivery_date: "",
   supplier_do_no: "", reference: "", import_decl_no: "", term_days: "", header_discount: "",
   rounding_adj: "",
 });
@@ -120,6 +123,7 @@ function Form({ def, id }: { def: KindDef; id: string }) {
   const [einv, setEinv] = useState<Einvoice | null>(null);
   // delivery order -> invoice: DO line id -> quantity to invoice now (null = picker closed)
   const [pick, setPick] = useState<Record<string, string> | null>(null);
+  const [pickTarget, setPickTarget] = useState<Kind>("sales-invoice");
   const items = useRef(new Map<string, Item>());
   const listPath = `/${def.area === "sales" ? "sales" : "purchases"}?kind=${def.kind}`;
   const partyPath = def.party === "customer" ? "/customers" : "/suppliers";
@@ -152,7 +156,7 @@ function Form({ def, id }: { def: KindDef; id: string }) {
       remark: d.remark ?? "", valid_until: d.valid_until ?? "",
       ref_invoice_id: d.ref_invoice_id ?? "", reason: d.reason ?? "",
       completeness: d.completeness ?? "", ref_invoice_no: d.ref_invoice_no ?? "",
-      expected_date: d.expected_date ?? "",
+      expected_date: d.expected_date ?? "", delivery_date: d.delivery_date ?? "",
       supplier_do_no: d.supplier_do_no ?? "", reference: d.reference ?? "",
       import_decl_no: d.import_decl_no ?? "",
       term_days: d.term_days != null ? String(d.term_days) : "",
@@ -168,7 +172,8 @@ function Form({ def, id }: { def: KindDef; id: string }) {
         serverPrice: own ? undefined : l.unit_price,
         discount_pct: String(Number(l.discount_pct)), tax_code_id: l.tax_code_id ?? "",
         remark: l.remark ?? "", do_line_id: l.do_line_id ?? null, po_line_id: l.po_line_id ?? null,
-        invoiced: l.invoiced_qty ?? l.received_qty, incl: !!l.price_incl_tax,
+        so_line_id: l.so_line_id ?? null,
+        invoiced: l.invoiced_qty ?? l.received_qty ?? l.fulfilled_qty, incl: !!l.price_incl_tax,
       };
     }));
     if (!keepWarnings) setWarnings(d.warnings ?? []);
@@ -298,6 +303,7 @@ function Form({ def, id }: { def: KindDef; id: string }) {
     remark: head.remark.trim() || null,
     ...(def.kind === "quotation" ? { valid_until: head.valid_until || null } : {}),
     ...(def.kind === "purchase-order" ? { expected_date: head.expected_date || null } : {}),
+    ...(def.kind === "sales-order" ? { delivery_date: head.delivery_date || null } : {}),
     ...(def.area === "purchase" ? {
       supplier_do_no: head.supplier_do_no.trim() || null, reference: head.reference.trim() || null,
       import_decl_no: head.import_decl_no.trim() || null,
@@ -317,6 +323,7 @@ function Form({ def, id }: { def: KindDef; id: string }) {
       remark: r.remark.trim() || null,
       ...(r.do_line_id ? { do_line_id: r.do_line_id } : {}),
       ...(r.po_line_id ? { po_line_id: r.po_line_id } : {}),
+      ...(r.so_line_id ? { so_line_id: r.so_line_id } : {}),
       ...(def.area === "purchase" ? { price_incl_tax: !!r.incl } : {}),
     })),
   });
@@ -376,8 +383,10 @@ function Form({ def, id }: { def: KindDef; id: string }) {
 
   // A delivery order is invoiced line by line, as much as the customer is billed for now.
   // A purchase order is received the same way, delivery by delivery.
+  // A sales order is delivered (DO) or invoiced the same way.
   const isPO = def.kind === "purchase-order";
-  const doneOf = (l: LineOut) => Number(l.invoiced_qty ?? l.received_qty ?? 0);
+  const isSO = def.kind === "sales-order";
+  const doneOf = (l: LineOut) => Number(l.invoiced_qty ?? l.received_qty ?? l.fulfilled_qty ?? 0);
   const leftOf = (l: LineOut) => Math.max(0, Number(l.qty) - doneOf(l));
   const openPick = () =>
     setPick(Object.fromEntries((doc?.lines ?? []).map((l) => [l.id, leftOf(l) ? String(leftOf(l)) : ""])));
@@ -386,10 +395,10 @@ function Form({ def, id }: { def: KindDef; id: string }) {
       .filter((l) => isNum(pick?.[l.id] ?? "") && Number(pick?.[l.id]) > 0)
       .map((l) => ({ source_line_id: l.id, qty: (pick as Record<string, string>)[l.id].trim() }));
     // suppliers may deliver more than ordered (the GRN warns); invoices never exceed the DO
-    const over = isPO ? undefined : (doc?.lines ?? []).find((l) => Number(pick?.[l.id] || 0) > leftOf(l) + 1e-9);
+    const over = isPO || isSO ? undefined : (doc?.lines ?? []).find((l) => Number(pick?.[l.id] || 0) > leftOf(l) + 1e-9);
     if (over) return setError(`${items.current.get(over.item_id)?.name ?? ""}: ${t("pickTooMuch")} ${fmtQty(leftOf(over))}`);
     if (lines.length === 0) return setError(t("pickNothing"));
-    return convert(isPO ? "grn" : "sales-invoice", lines);
+    return convert(isPO ? "grn" : isSO ? pickTarget : "sales-invoice", lines);
   };
 
   // --- screen -------------------------------------------------------------------------------
@@ -409,9 +418,10 @@ function Form({ def, id }: { def: KindDef; id: string }) {
 
   // --- the paper version (from the saved document) ---------------------------------------------
   const isDO = def.kind === "delivery-order";  // a delivery order carries no prices
-  const fullyInvoiced = (isDO || isPO) && !!doc
-    && doc.lines.every((l) => (l.invoiced_qty ?? l.received_qty) !== undefined && leftOf(l) === 0);
-  const closed = isPO && !!doc?.closed_at;
+  const fullyInvoiced = (isDO || isPO || isSO) && !!doc
+    && doc.lines.every((l) => (l.invoiced_qty ?? l.received_qty ?? l.fulfilled_qty) !== undefined
+      && leftOf(l) === 0);
+  const closed = (isPO || isSO) && !!doc?.closed_at;
   const store = locations.find((l) => l.id === doc?.location_id);
   const printRows = (doc?.lines ?? []).map((l, i) => {
     const it = items.current.get(l.item_id);
@@ -523,6 +533,13 @@ function Form({ def, id }: { def: KindDef; id: string }) {
               </div>
             </>
           )}
+          {def.kind === "sales-order" && (
+            <div className="field">
+              <label htmlFor="deliv">{t("deliveryDate")}</label>
+              <input id="deliv" className="input" type="date" value={head.delivery_date} disabled={!editable}
+                     onChange={(e) => setH({ delivery_date: e.target.value })} />
+            </div>
+          )}
           {def.kind === "purchase-order" && (
             <div className="field">
               <label htmlFor="expected">{t("expectedDate")}</label>
@@ -617,8 +634,9 @@ function Form({ def, id }: { def: KindDef; id: string }) {
                       <span className="muted">
                         {r.item.code}{r.do_line_id ? ` · ${t("fromDo")}` : ""}
                         {r.po_line_id ? ` · ${t("fromPo")}` : ""}
+                        {r.so_line_id ? ` · ${t("fromSo")}` : ""}
                         {r.invoiced !== undefined && status === "POSTED"
-                          ? ` · ${t(isPO ? "receivedOf" : "invoicedOf")} ${fmtQty(r.invoiced)} / ${fmtQty(r.qty)}` : ""}
+                          ? ` · ${t(isPO ? "receivedOf" : isSO ? "deliveredOf" : "invoicedOf")} ${fmtQty(r.invoiced)} / ${fmtQty(r.qty)}` : ""}
                       </span>
                     </td>
                     <td>
@@ -733,10 +751,14 @@ function Form({ def, id }: { def: KindDef; id: string }) {
             )}
             {doc && def.converts.filter((c) => c.from === status).map((c) =>
               can(`${def.perm}.doc.create`) && (
-                isDO || isPO ? (
+                isDO || isPO || isSO ? (
                   <button key={c.target} className="btn ghost" disabled={busy || fullyInvoiced || closed}
-                          onClick={() => (pick ? setPick(null) : openPick())}>
-                    {fullyInvoiced ? t(isPO ? "fullyReceived" : "fullyInvoiced")
+                          onClick={() => {
+                            if (pick && pickTarget === c.target) return setPick(null);
+                            setPickTarget(c.target);
+                            openPick();
+                          }}>
+                    {fullyInvoiced ? t(isPO ? "fullyReceived" : isSO ? "fullyDelivered" : "fullyInvoiced")
                       : closed ? t("poClosed")
                       : isPO ? t("receiveGoods") : `${t("convertTo")} ${t(c.target).toLowerCase()}`}
                   </button>
@@ -745,10 +767,10 @@ function Form({ def, id }: { def: KindDef; id: string }) {
                           onClick={() => convert(c.target)}>{t("convertTo")} {t(c.target).toLowerCase()}</button>
                 )
               ))}
-            {isPO && doc && status === "POSTED" && !fullyInvoiced && can("pur.doc.post") && (
+            {(isPO || isSO) && doc && status === "POSTED" && !fullyInvoiced && can(`${def.perm}.doc.post`) && (
               <button className="btn ghost" disabled={busy}
                       onClick={() => step("close", closed ? { reopen: true } : {})}>
-                {t(closed ? "reopenPo" : "closePo")}
+                {t(closed ? (isSO ? "reopenSo" : "reopenPo") : (isSO ? "closeSo" : "closePo"))}
               </button>
             )}
             {doc && (status === "SAVED" || status === "POSTED") && can(`${def.perm}.doc.void`) && (
@@ -763,16 +785,16 @@ function Form({ def, id }: { def: KindDef; id: string }) {
 
         {pick && doc && (
           <div className="pick-box">
-            <strong>{t(isPO ? "receiveTitle" : "pickTitle")}</strong>
-            <span className="muted">{t(isPO ? "receiveHint" : "pickHint")}</span>
+            <strong>{isSO ? `${t("convertTo")} ${t(pickTarget).toLowerCase()}` : t(isPO ? "receiveTitle" : "pickTitle")}</strong>
+            <span className="muted">{t(isPO ? "receiveHint" : isSO ? "soPickHint" : "pickHint")}</span>
             <div className="scroll-x">
               <table className="table doc-lines">
                 <thead>
                   <tr>
-                    <th>{t("item")}</th><th className="num">{t(isPO ? "ordered" : "delivered")}</th>
-                    <th className="num">{t(isPO ? "receivedOf" : "invoicedOf")}</th>
+                    <th>{t("item")}</th><th className="num">{t(isPO || isSO ? "ordered" : "delivered")}</th>
+                    <th className="num">{t(isPO ? "receivedOf" : isSO ? "deliveredOf" : "invoicedOf")}</th>
                     <th className="num">{t("leftToInvoice")}</th>
-                    <th className="num">{t(isPO ? "receiveNow" : "invoiceNow")}</th>
+                    <th className="num">{t(isPO ? "receiveNow" : isSO ? "takeNow" : "invoiceNow")}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -784,7 +806,7 @@ function Form({ def, id }: { def: KindDef; id: string }) {
                       <td className="num"><b>{fmtQty(leftOf(l))}</b></td>
                       <td className="num">
                         <input className="input sm num" inputMode="decimal" value={pick[l.id] ?? ""}
-                               disabled={!isPO && leftOf(l) === 0} aria-label={`${t(isPO ? "receiveNow" : "invoiceNow")} ${l.uom}`}
+                               disabled={!isPO && !isSO && leftOf(l) === 0} aria-label={`${t(isPO ? "receiveNow" : "invoiceNow")} ${l.uom}`}
                                onChange={(e) => setPick({ ...pick, [l.id]: e.target.value })} />
                       </td>
                     </tr>
@@ -795,7 +817,7 @@ function Form({ def, id }: { def: KindDef; id: string }) {
             <div className="actions">
               <button className="btn ghost" onClick={() => setPick(null)}>{t("cancel")}</button>
               <button className="btn" disabled={busy} onClick={invoicePicked}>
-                {t(isPO ? "createGrnDraft" : "createInvoiceDraft")}
+                {isSO ? `${t("createDraft")}: ${t(pickTarget).toLowerCase()}` : t(isPO ? "createGrnDraft" : "createInvoiceDraft")}
               </button>
             </div>
           </div>

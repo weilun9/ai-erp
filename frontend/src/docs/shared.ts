@@ -7,6 +7,7 @@ export const DOC_ROUTE: Record<string, string> = {
   INV: "sales-invoice", CN: "customer-cn", OR: "receipt",
   GRN: "grn", SCN: "supplier-cn", PV: "supplier-payment",
   SDN: "supplier-dn", SCA: "supplier-adj", SRF: "supplier-refund", PO: "purchase-order",
+  SO: "sales-order", CDN: "customer-dn",
 };
 
 /** A plain 2-decimal number for tables on paper (the column heading carries the currency). */
@@ -36,6 +37,7 @@ const WARN_KEYS = {
   BELOW_COST: "warnBELOW_COST",
   BELOW_MIN_PRICE: "warnBELOW_MIN_PRICE",
   OVER_PO: "warnOVER_PO",
+  OVER_SO: "warnOVER_SO",
   SUPPLIER_REF_FORMAT: "warnSUPPLIER_REF_FORMAT",
   SUPPLIER_REF_MISSING: "warnSUPPLIER_REF_MISSING",
   ADVANCE: "warnADVANCE",

@@ -12,7 +12,7 @@ Notes are knocked off later by payments (or by hand); a refund knocks off when p
 
 import uuid
 from dataclasses import dataclass
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 from typing import Any
 
@@ -21,6 +21,9 @@ from sqlalchemy.orm import Session, selectinload
 
 from app.core.errors import BadRequest, BusinessRule, DocState, NotFound, VersionConflict
 from app.models import (
+    Customer,
+    CustomerDebitNote,
+    CustomerDebitNoteLine,
     Location,
     Supplier,
     SupplierCreditAdj,
@@ -46,8 +49,17 @@ class Kind:
     header: type
     line: type | None
     code: str  # knock-off / numbering code
-    perm: str  # pur / fin
+    perm: str  # pur / fin / sal
     entity: str
+    party: str = "supplier"  # or customer
+
+    @property
+    def party_attr(self) -> str:
+        return f"{self.party}_id"
+
+    @property
+    def ref_attr(self) -> str:
+        return f"{self.party}_ref_no"
 
 
 KINDS = {
@@ -65,6 +77,15 @@ KINDS = {
             "pur.supplier_adj",
         ),
         Kind("refund", SupplierRefund, SupplierRefundLine, "SRF", "fin", "fin.supplier_refund"),
+        Kind(
+            "customer-debit-note",
+            CustomerDebitNote,
+            CustomerDebitNoteLine,
+            "CDN",
+            "sal",
+            "sal.customer_dn",
+            "customer",
+        ),
     )
 }
 REFUNDABLE = ("SCN", "SCA", "PV")  # supplier credits that money back can settle
@@ -107,7 +128,7 @@ def list_docs(
     kind: str,
     *,
     status: str | None = None,
-    supplier_id: uuid.UUID | None = None,
+    party_id: uuid.UUID | None = None,
     date_from: date | None = None,
     date_to: date | None = None,
     q: str | None = None,
@@ -120,15 +141,15 @@ def list_docs(
     stmt = _query(k, p)
     if status:
         stmt = stmt.where(h.status == status)
-    if supplier_id:
-        stmt = stmt.where(h.supplier_id == supplier_id)
+    if party_id:
+        stmt = stmt.where(getattr(h, k.party_attr) == party_id)
     if date_from:
         stmt = stmt.where(h.doc_date >= date_from)
     if date_to:
         stmt = stmt.where(h.doc_date <= date_to)
     if q:
         like = f"%{q.strip()}%"
-        stmt = stmt.where(or_(h.doc_no.ilike(like), h.supplier_ref_no.ilike(like)))
+        stmt = stmt.where(or_(h.doc_no.ilike(like), getattr(h, k.ref_attr).ilike(like)))
     total = db.scalar(select(func.count()).select_from(stmt.order_by(None).subquery()))
     rows = db.scalars(
         stmt.order_by(h.doc_date.desc(), h.created_at.desc())
@@ -141,13 +162,14 @@ def list_docs(
 # --- building -----------------------------------------------------------------------------
 
 
-def _check_header(db: Session, p: Principal, v: dict[str, Any]) -> None:
-    if v.get("supplier_id"):
-        s = db.get(Supplier, v["supplier_id"])
+def _check_header(db: Session, p: Principal, k: Kind, v: dict[str, Any]) -> None:
+    if v.get(k.party_attr):
+        model = Customer if k.party == "customer" else Supplier
+        s = db.get(model, v[k.party_attr])
         if s is None or s.company_id != p.company_id:
-            raise BadRequest("Supplier not found")
+            raise BadRequest(f"{k.party.capitalize()} not found")
         if not s.is_active:
-            raise BusinessRule("Supplier is inactive", {"supplier": s.code})
+            raise BusinessRule(f"{k.party.capitalize()} is inactive", {k.party: s.code})
     if v.get("location_id"):
         loc = db.get(Location, v["location_id"])
         if loc is None or loc.company_id != p.company_id or not p.can_see_location(loc.id):
@@ -230,7 +252,7 @@ def _snapshot(doc) -> dict[str, Any]:
 def create_doc(db: Session, p: Principal, kind: str, *, lines: list[dict[str, Any]], **v: Any):
     k = _kind(kind)
     p.require(f"{k.perm}.doc.create")
-    _check_header(db, p, v)
+    _check_header(db, p, k, v)
     doc = k.header(
         company_id=p.company_id, status="DRAFT", created_by=p.user_id, updated_by=p.user_id, **v
     )
@@ -260,9 +282,9 @@ def update_doc(
     if doc.version != version:
         raise VersionConflict("This document was changed by someone else; reload it")
     before = _snapshot(doc)
-    _check_header(db, p, v)
+    _check_header(db, p, k, v)
     for key, val in v.items():
-        if val is None and key in ("doc_date", "supplier_id", "location_id", "amount", "method"):
+        if val is None and key in ("doc_date", k.party_attr, "location_id", "amount", "method"):
             raise BadRequest("Field cannot be empty", {"field": key})
         setattr(doc, key, val)
     if lines is not None:
@@ -305,6 +327,8 @@ def _validate(db: Session, p: Principal, k: Kind, doc) -> list[dict[str, Any]]:
         raise BusinessRule("A document needs at least one line")
     if any(ln.amount <= 0 for ln in doc.lines):
         raise BusinessRule("Line amounts must be more than zero")
+    if k.party == "customer":
+        return []  # our own document: no supplier number to check
     ref = (doc.supplier_ref_no or "").strip()
     if ref:
         dup = db.scalar(
@@ -337,6 +361,8 @@ def save_doc(db: Session, p: Principal, kind: str, doc_id: uuid.UUID, version: i
     if not doc.doc_no:
         doc.doc_no = next_doc_no(db, p.company_id, k.code)
     doc.status = "SAVED"
+    if k.party == "customer":
+        doc.due_date = doc.doc_date + timedelta(days=db.get(Customer, doc.customer_id).term_days)
     doc.version += 1
     doc.updated_by = p.user_id
     audit.record(db, p, "save", k.entity, doc.id, after={"doc_no": doc.doc_no})

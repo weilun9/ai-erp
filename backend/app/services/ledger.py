@@ -39,6 +39,7 @@ from app.localization.my import TIMEZONE
 from app.models import (
     Account,
     CustomerCn,
+    CustomerDebitNote,
     CustomerReceipt,
     DeliveryOrder,
     Grn,
@@ -239,6 +240,14 @@ def _customer_cn(d, sv):
     return lines
 
 
+def _customer_dn(d, sv):
+    return [
+        ("AR", d.total, "C", d.customer_id),
+        ("SALES", -d.subtotal, None, None),
+        ("OUTPUT_TAX", -d.tax_total, None, None),
+    ]
+
+
 def _receipt(d, sv):
     return [(_money_key(d.method), d.amount, None, None), ("AR", -d.amount, "C", d.customer_id)]
 
@@ -322,6 +331,7 @@ SOURCES = (
     Source("INV", SalesInvoice, _sales_invoice, "INV", "Sales invoice"),
     Source("DO", DeliveryOrder, _delivery_order, "DO", "Delivery order"),
     Source("CN", CustomerCn, _customer_cn, "CN", "Customer CN"),
+    Source("CDN", CustomerDebitNote, _customer_dn, None, "Customer debit note"),
     Source("OR", CustomerReceipt, _receipt, None, "Receipt"),
     Source("GRN", Grn, _grn, None, "Goods received"),
     Source("SCN", SupplierCn, _supplier_cn, None, "Goods return"),

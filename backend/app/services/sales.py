@@ -16,6 +16,7 @@ Lifecycle as purchasing: DRAFT --save--> SAVED --post--> POSTED --void--> VOIDED
 """
 
 import uuid
+from collections import defaultdict
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
@@ -40,6 +41,8 @@ from app.models import (
     QuotationLine,
     SalesInvoice,
     SalesInvoiceLine,
+    SalesOrder,
+    SalesOrderLine,
     StockBalance,
     TaxCode,
 )
@@ -65,6 +68,7 @@ KINDS: dict[str, Kind] = {
     k.key: k
     for k in (
         Kind("quotation", Quotation, QuotationLine, "QT", 0, "sal.quotation"),
+        Kind("sales-order", SalesOrder, SalesOrderLine, "SO", 0, "sal.sales_order"),
         Kind("delivery-order", DeliveryOrder, DeliveryOrderLine, "DO", -1, "sal.do"),
         Kind("sales-invoice", SalesInvoice, SalesInvoiceLine, "INV", -1, "sal.invoice"),
         Kind("customer-cn", CustomerCn, CustomerCnLine, "CN", +1, "sal.customer_cn"),
@@ -73,6 +77,9 @@ KINDS: dict[str, Kind] = {
 
 # What can be converted into what, and the status the source must have.
 CONVERSIONS: dict[tuple[str, str], str] = {
+    ("quotation", "sales-order"): "SAVED",
+    ("sales-order", "delivery-order"): "POSTED",
+    ("sales-order", "sales-invoice"): "POSTED",
     ("quotation", "delivery-order"): "SAVED",
     ("quotation", "sales-invoice"): "SAVED",
     ("delivery-order", "sales-invoice"): "POSTED",
@@ -234,6 +241,97 @@ def invoiced_by_line(db: Session, do) -> dict[uuid.UUID, Decimal]:
     return {ln.id: q4(done.get(ln.id, Decimal(0)) / ln.factor) for ln in do.lines}
 
 
+def _so_lines(db: Session, ids: set, *, lock: bool = False) -> dict:
+    if not ids:
+        return {}
+    stmt = (
+        select(SalesOrderLine)
+        .where(SalesOrderLine.id.in_(ids))
+        .options(selectinload(SalesOrderLine.header))
+    )
+    if lock:
+        stmt = stmt.with_for_update(of=SalesOrderLine)
+    return {ln.id: ln for ln in db.scalars(stmt)}
+
+
+def _fulfilled_qty(db: Session, so_line_ids: set, exclude_doc=None) -> dict:
+    """Base quantity of each sales order line on saved / posted DOs and direct invoices."""
+    if not so_line_ids:
+        return {}
+    out: dict = {}
+    for h, line in ((DeliveryOrder, DeliveryOrderLine), (SalesInvoice, SalesInvoiceLine)):
+        stmt = (
+            select(line.so_line_id, func.sum(line.base_qty))
+            .join(h, h.id == line.header_id)
+            .where(line.so_line_id.in_(so_line_ids), h.status.in_(ACTIVE))
+            .group_by(line.so_line_id)
+        )
+        if exclude_doc:
+            stmt = stmt.where(h.id != exclude_doc)
+        for k, v in db.execute(stmt).all():
+            out[k] = out.get(k, Decimal(0)) + v
+    return out
+
+
+def fulfilled_by_line(db: Session, so) -> dict:
+    """For a sales order: quantity of each line (in its own unit) delivered or invoiced."""
+    done = _fulfilled_qty(db, {ln.id for ln in so.lines})
+    return {ln.id: q4(done.get(ln.id, Decimal(0)) / ln.factor) for ln in so.lines}
+
+
+def on_sales_order(db: Session, company_id, item_ids=None, location_ids=None) -> dict:
+    """Base quantity customers ordered and not yet delivered, per (item, location)."""
+    out: dict = defaultdict(lambda: Decimal(0))
+    stmt = (
+        select(SalesOrderLine, SalesOrder.location_id)
+        .join(SalesOrder, SalesOrder.id == SalesOrderLine.header_id)
+        .where(
+            SalesOrder.company_id == company_id,
+            SalesOrder.status == "POSTED",
+            SalesOrder.closed_at.is_(None),
+        )
+    )
+    if item_ids is not None:
+        stmt = stmt.where(SalesOrderLine.item_id.in_(item_ids))
+    if location_ids is not None:
+        stmt = stmt.where(SalesOrder.location_id.in_(location_ids))
+    rows = db.execute(stmt).all()
+    done = _fulfilled_qty(db, {ln.id for ln, _ in rows})
+    for ln, loc in rows:
+        left = ln.base_qty - done.get(ln.id, Decimal(0))
+        if left > 0:
+            out[(ln.item_id, loc)] += left
+    return dict(out)
+
+
+def _over_so(db: Session, doc) -> list[dict[str, Any]]:
+    wanted: dict = {}
+    for ln in doc.lines:
+        if getattr(ln, "so_line_id", None):
+            wanted[ln.so_line_id] = wanted.get(ln.so_line_id, Decimal(0)) + ln.base_qty
+    if not wanted:
+        return []
+    so_lines = _so_lines(db, set(wanted), lock=True)
+    done = _fulfilled_qty(db, set(wanted), exclude_doc=doc.id)
+    over = []
+    for line_id, qty in wanted.items():
+        sl = so_lines[line_id]
+        left = sl.base_qty - done.get(line_id, Decimal(0))
+        if qty > left:
+            over.append(
+                {
+                    "so_no": sl.header.doc_no,
+                    "so_line": sl.line_no,
+                    "ordered_left": str(q4(left / sl.factor)),
+                    "this_doc": str(q4(qty / sl.factor)),
+                    "uom": sl.uom,
+                }
+            )
+    if not over:
+        return []
+    return [{"code": "OVER_SO", "message": "More than is left on the sales order", "lines": over}]
+
+
 def _build_lines(
     db: Session,
     p: Principal,
@@ -258,6 +356,11 @@ def _build_lines(
     do_lines = (
         _do_lines(db, {ln["do_line_id"] for ln in lines if ln.get("do_line_id")})
         if k.key == "sales-invoice"
+        else {}
+    )
+    so_lines = (
+        _so_lines(db, {ln["so_line_id"] for ln in lines if ln.get("so_line_id")})
+        if k.key in ("delivery-order", "sales-invoice")
         else {}
     )
     out = []
@@ -291,6 +394,23 @@ def _build_lines(
                     {"line": n},
                 )
             extra["do_line_id"] = dl.id
+        if k.key in ("delivery-order", "sales-invoice") and ln.get("so_line_id"):
+            sl = so_lines.get(ln["so_line_id"])
+            if (
+                sl is None
+                or sl.header.company_id != p.company_id
+                or sl.header.status != "POSTED"
+                or sl.header.customer_id != customer_id
+                or sl.item_id != item.id
+            ):
+                raise BadRequest(
+                    "Sales order line must be on a confirmed order of this customer for the "
+                    "same item",
+                    {"line": n},
+                )
+            if extra.get("do_line_id"):
+                raise BadRequest("A line comes from a DO or a sales order, not both", {"line": n})
+            extra["so_line_id"] = sl.id
 
         qty = Decimal(ln["qty"])
         disc = Decimal(ln.get("discount_pct") or 0)
@@ -342,6 +462,7 @@ def _line_input(ln, *, keep_price: bool = True) -> dict[str, Any]:
         "tax_code_id": ln.tax_code_id,
         "remark": ln.remark,
         "do_line_id": getattr(ln, "do_line_id", None),
+        "so_line_id": getattr(ln, "so_line_id", None),
     }
 
 
@@ -417,9 +538,13 @@ def _validate_for_save(db: Session, p: Principal, k: Kind, doc) -> list[dict[str
             )
     if k.key == "sales-invoice":
         _check_do_quantities(db, doc)
+    if k.key == "sales-order" and doc.delivery_date and doc.delivery_date < doc.doc_date:
+        raise BusinessRule("Delivery date is before the order date")
 
     warnings: list[dict[str, Any]] = []
-    if k.direction < 0 or k.key == "quotation":
+    if k.key in ("delivery-order", "sales-invoice"):
+        warnings += _over_so(db, doc)
+    if k.direction < 0 or k.direction == 0:
         warnings += _below_cost(db, p, doc)
         warnings += _below_min_price(db, doc)
     if k.key == "sales-invoice":
@@ -661,7 +786,7 @@ def post_doc(db: Session, p: Principal, kind: str, doc_id: uuid.UUID, version: i
     k = _kind(kind)
     p.require("sal.doc.post")
     doc = get_doc(db, p, kind, doc_id, lock=True)  # row lock: no double posting
-    if k.direction == 0:
+    if k.key == "quotation":
         raise DocState("Quotations are not posted; convert it into a DO or an invoice")
     if doc.status != "SAVED":
         raise DocState("Only saved documents can be posted", {"status": doc.status})
@@ -670,7 +795,7 @@ def post_doc(db: Session, p: Principal, kind: str, doc_id: uuid.UUID, version: i
     if k.key == "sales-invoice":
         _check_do_quantities(db, doc)
 
-    moves = _moves(db, k, doc)
+    moves = _moves(db, k, doc) if k.direction else []
     if moves:
         rows = stock.apply_moves(
             db,
@@ -712,6 +837,17 @@ def post_doc(db: Session, p: Principal, kind: str, doc_id: uuid.UUID, version: i
 
 def _dependants(db: Session, k: Kind, doc) -> list[str]:
     """Active documents that rely on this one and must be voided first."""
+    if k.key == "sales-order":
+        ids = [ln.id for ln in doc.lines]
+        out: list[str] = []
+        for h, line in ((DeliveryOrder, DeliveryOrderLine), (SalesInvoice, SalesInvoiceLine)):
+            out += db.scalars(
+                select(h.doc_no)
+                .join(line, line.header_id == h.id)
+                .where(line.so_line_id.in_(ids), h.status.in_(ACTIVE))
+                .distinct()
+            ).all()
+        return out
     if k.key == "delivery-order":
         return list(
             db.scalars(
@@ -775,6 +911,61 @@ def void_doc(db: Session, p: Principal, kind: str, doc_id: uuid.UUID, version: i
     return get_doc(db, p, kind, doc.id)
 
 
+def _from_sales_order(db: Session, so, pick) -> list[dict[str, Any]]:
+    done = _fulfilled_qty(db, {ln.id for ln in so.lines})
+    wanted = None
+    if pick is not None:
+        known = {ln.id for ln in so.lines}
+        wanted = {}
+        for row in pick:
+            if row["source_line_id"] not in known:
+                raise BadRequest("That line is not on this sales order")
+            if row["source_line_id"] in wanted:
+                raise BadRequest("The same sales order line is picked twice")
+            wanted[row["source_line_id"]] = Decimal(row["qty"])
+        if not wanted:
+            raise BadRequest("Pick at least one line")
+    lines = []
+    for ln in so.lines:
+        left = max(ln.base_qty - done.get(ln.id, Decimal(0)), Decimal(0))
+        if wanted is not None:
+            if ln.id not in wanted:
+                continue
+            qty = wanted[ln.id]  # more than ordered is allowed; saving warns OVER_SO
+        elif left <= 0:
+            continue
+        else:
+            qty = q4(left / ln.factor)
+        row = _line_input(ln)
+        row["unit_price"], row["discount_pct"] = ln.unit_price, ln.discount_pct
+        row["qty"] = qty
+        row["do_line_id"] = None
+        row["so_line_id"] = ln.id
+        lines.append(row)
+    if not lines:
+        raise BusinessRule("Everything on this sales order is already delivered")
+    return lines
+
+
+def close_so(db: Session, p: Principal, doc_id: uuid.UUID, version: int, reopen: bool = False):
+    """Stop waiting for the rest of a confirmed sales order (or reopen it)."""
+    p.require("sal.doc.post")
+    doc = get_doc(db, p, "sales-order", doc_id, lock=True)
+    if doc.status != "POSTED":
+        raise DocState(
+            "Only a confirmed (posted) sales order can be closed", {"status": doc.status}
+        )
+    if doc.version != version:
+        raise VersionConflict("This document was changed by someone else; reload it")
+    doc.closed_at, doc.closed_by = (None, None) if reopen else (datetime.now(UTC), p.user_id)
+    doc.version += 1
+    doc.updated_by = p.user_id
+    action = "reopen" if reopen else "close"
+    audit.record(db, p, action, "sal.sales_order", doc.id, after={"doc_no": doc.doc_no})
+    db.commit()
+    return get_doc(db, p, "sales-order", doc.id)
+
+
 def convert(
     db: Session,
     p: Principal,
@@ -800,9 +991,13 @@ def convert(
     if src.status != need:
         raise DocState(f"Only a {need} {source_kind} can be converted", {"status": src.status})
 
-    if pick is not None and source_kind != "delivery-order":
-        raise BadRequest("Lines can only be picked when invoicing a delivery order")
-    if source_kind == "delivery-order":
+    if pick is not None and source_kind not in ("delivery-order", "sales-order"):
+        raise BadRequest("Lines can only be picked from a delivery order or a sales order")
+    if source_kind == "sales-order":
+        if src.closed_at is not None:
+            raise BusinessRule("This sales order is closed; reopen it to deliver more")
+        lines = _from_sales_order(db, src, pick)
+    elif source_kind == "delivery-order":
         done = _invoiced_qty(db, {ln.id for ln in src.lines})
         wanted: dict[uuid.UUID, Decimal] | None = None
         if pick is not None:

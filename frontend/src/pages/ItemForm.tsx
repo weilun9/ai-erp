@@ -44,6 +44,7 @@ type ReorderSet = Record<ReorderKey, string | null>;
 interface LocRow {
   location_id: string; location_code: string; location_name: string; qty: string; avg_cost?: string | null;
   own: ReorderSet; effective: ReorderSet; shelf: string | null; below_reorder: boolean; on_order: string;
+  on_sales_order?: string;
 }
 interface Overview {
   locations: LocRow[]; total_qty: string; total_on_order: string; cost_hidden: boolean;
@@ -526,7 +527,7 @@ export function ItemForm() {
               <table className="table doc-lines">
                 <thead>
                   <tr>
-                    <th>{t("store")}</th><th className="num">{t("onHand")}</th><th className="num">{t("onOrder")}</th>
+                    <th>{t("store")}</th><th className="num">{t("onHand")}</th><th className="num">{t("onOrder")}</th><th className="num">{t("onSalesOrder")}</th>
                     {!ov.cost_hidden && <th className="num">{t("avgCost")}</th>}
                     {REORDER.map((k) => <th key={k} className="num">{t(REORDER_LABEL[k])}</th>)}
                     <th>{t("shelf")}</th>
@@ -545,6 +546,7 @@ export function ItemForm() {
                           {r.below_reorder && <span className="muted"> {t("belowReorder")}</span>}
                         </td>
                         <td className="num">{Number(r.on_order) ? qty(r.on_order) : "—"}</td>
+                        <td className="num">{Number(r.on_sales_order ?? 0) ? qty(r.on_sales_order as string) : "—"}</td>
                         {!ov.cost_hidden && <td className="num">{r.avg_cost != null ? money(r.avg_cost) : "—"}</td>}
                         {REORDER.map((k) => (
                           <td className="num" key={k}>

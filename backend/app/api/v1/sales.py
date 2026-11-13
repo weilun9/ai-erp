@@ -14,11 +14,16 @@ from app.services import sales as svc
 
 router = APIRouter(prefix="/sales", tags=["sales"])
 
-Kind = Literal["quotation", "delivery-order", "sales-invoice", "customer-cn"]
+Kind = Literal["quotation", "sales-order", "delivery-order", "sales-invoice", "customer-cn"]
 Status = Literal["DRAFT", "SAVED", "POSTED", "VOIDED"]
 EXCLUDE_UNSET = {"response_model_exclude_unset": True}
 # Header fields that only some kinds have.
-ONLY_FOR = {"valid_until": "quotation", "ref_invoice_id": "customer-cn", "reason": "customer-cn"}
+ONLY_FOR = {
+    "valid_until": "quotation",
+    "delivery_date": "sales-order",
+    "ref_invoice_id": "customer-cn",
+    "reason": "customer-cn",
+}
 
 
 class LineIn(BaseModel):
@@ -31,6 +36,7 @@ class LineIn(BaseModel):
     tax_code_id: uuid.UUID | None = None
     remark: str | None = Field(default=None, max_length=200)
     do_line_id: uuid.UUID | None = None  # sales-invoice only: invoicing a delivered DO line
+    so_line_id: uuid.UUID | None = None  # DO / invoice: fulfilling a sales order line
 
 
 class DocIn(BaseModel):
@@ -40,6 +46,7 @@ class DocIn(BaseModel):
     customer_ref_no: str | None = Field(default=None, max_length=50)
     remark: str | None = Field(default=None, max_length=500)
     valid_until: date | None = None
+    delivery_date: date | None = None
     ref_invoice_id: uuid.UUID | None = None
     reason: str | None = Field(default=None, max_length=200)
     lines: list[LineIn] = Field(default=[], max_length=500)
@@ -53,6 +60,7 @@ class DocPatch(BaseModel):
     customer_ref_no: str | None = Field(default=None, max_length=50)
     remark: str | None = Field(default=None, max_length=500)
     valid_until: date | None = None
+    delivery_date: date | None = None
     ref_invoice_id: uuid.UUID | None = None
     reason: str | None = Field(default=None, max_length=200)
     lines: list[LineIn] | None = Field(default=None, max_length=500)
@@ -98,6 +106,9 @@ class LineOut(BaseModel):
     unit_cost: Decimal | None = sensitive("cost")
     remark: str | None
     do_line_id: uuid.UUID | None = None
+    so_line_id: uuid.UUID | None = None
+    # sales order, single document only: delivered or invoiced so far
+    fulfilled_qty: Decimal | None = None
     # delivery order, single document only: how much of the line is invoiced already
     invoiced_qty: Decimal | None = None
 
@@ -118,6 +129,8 @@ class DocOut(BaseModel):
     cost_total: Decimal | None = sensitive("cost")
     gross_profit: Decimal | None = sensitive("cost")  # subtotal - cost, once posted
     valid_until: date | None = None
+    delivery_date: date | None = None
+    closed_at: datetime | None = None
     due_date: date | None = None
     ref_invoice_id: uuid.UUID | None = None
     reason: str | None = None
@@ -141,18 +154,24 @@ def _out(
     p,
     warnings: list[dict[str, Any]] | None = None,
     invoiced: dict[uuid.UUID, Decimal] | None = None,
+    fulfilled: dict[uuid.UUID, Decimal] | None = None,
 ) -> DocOut:
     data = {c: getattr(doc, c) for c in DocOut.model_fields if hasattr(doc, c)}
     data["lines"] = [
         shape(
             LineOut,
             {c: getattr(ln, c) for c in LineOut.model_fields if hasattr(ln, c)}
-            | ({"invoiced_qty": invoiced.get(ln.id, Decimal(0))} if invoiced is not None else {}),
+            | ({"invoiced_qty": invoiced.get(ln.id, Decimal(0))} if invoiced is not None else {})
+            | (
+                {"fulfilled_qty": fulfilled.get(ln.id, Decimal(0))} if fulfilled is not None else {}
+            ),
             p,
         )
         for ln in doc.lines
     ]
-    data["gross_profit"] = doc.subtotal - doc.cost_total if doc.status == "POSTED" else None
+    # an order (or quotation) has no cost until goods go out on a DO or invoice
+    booked = doc.status == "POSTED" and not hasattr(doc, "delivery_date")
+    data["gross_profit"] = doc.subtotal - doc.cost_total if booked else None
     if warnings is not None:
         data["warnings"] = warnings
     return shape(DocOut, data, p)
@@ -165,9 +184,11 @@ def _values(body: BaseModel, kind: str) -> dict[str, Any]:
             v.pop(field, None)
     if v.get("lines") is not None:
         v["lines"] = [dict(ln) for ln in v["lines"]]
-        if kind != "sales-invoice":
-            for ln in v["lines"]:
+        for ln in v["lines"]:
+            if kind != "sales-invoice":
                 ln.pop("do_line_id", None)
+            if kind not in ("delivery-order", "sales-invoice"):
+                ln.pop("so_line_id", None)
     return v
 
 
@@ -205,7 +226,19 @@ def list_docs(
 def get_doc(kind: Kind, doc_id: uuid.UUID, p: CurrentUser, db: DB) -> DocOut:
     doc = svc.get_doc(db, p, kind, doc_id)
     invoiced = svc.invoiced_by_line(db, doc) if kind == "delivery-order" else None
-    return _out(doc, p, invoiced=invoiced)
+    fulfilled = svc.fulfilled_by_line(db, doc) if kind == "sales-order" else None
+    return _out(doc, p, invoiced=invoiced, fulfilled=fulfilled)
+
+
+class CloseIn(VersionIn):
+    reopen: bool = False
+
+
+@router.post("/sales-order/{doc_id}/close", **EXCLUDE_UNSET)
+def close_so(doc_id: uuid.UUID, body: CloseIn, p: CurrentUser, db: DB) -> DocOut:
+    """Stop waiting for the rest of the sales order (reopen=true undoes it)."""
+    doc = svc.close_so(db, p, doc_id, body.version, reopen=body.reopen)
+    return _out(doc, p, fulfilled=svc.fulfilled_by_line(db, doc))
 
 
 @router.post("/{kind}", status_code=201, **EXCLUDE_UNSET)

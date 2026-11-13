@@ -37,6 +37,7 @@ from app.core.errors import (
 )
 from app.models import (
     Customer,
+    CustomerDebitNote,
     CustomerReceipt,
     CustomerReceiptLine,
     Grn,
@@ -521,27 +522,36 @@ def _post_receipt(db: Session, p: Principal, doc) -> None:
     left = ko.open_amount(db, ko.doc_type("OR"), doc)
     if left <= 0:
         return
-    ids = db.scalars(
-        select(SalesInvoice.id).where(
-            SalesInvoice.company_id == p.company_id,
-            SalesInvoice.customer_id == doc.customer_id,
-            SalesInvoice.status == "POSTED",
-        )
-    ).all()
-    invs = ko.lock_docs(db, p, [("INV", i) for i in ids])
+    # invoices and debit notes, oldest due first
+    refs = []
+    for code, model in (("INV", SalesInvoice), ("CDN", CustomerDebitNote)):
+        refs += [
+            (code, i)
+            for i in db.scalars(
+                select(model.id).where(
+                    model.company_id == p.company_id,
+                    model.customer_id == doc.customer_id,
+                    model.status == "POSTED",
+                )
+            ).all()
+        ]
+    docs = ko.lock_docs(db, p, refs)
+    code_of = {i: c for c, i in refs}
     oldest_first = sorted(
-        invs.values(), key=lambda i: (i.due_date or i.doc_date, i.doc_date, i.doc_no)
+        docs.values(), key=lambda i: (i.due_date or i.doc_date, i.doc_date, i.doc_no)
     )
     n = len(doc.lines)
     for inv in oldest_first:
         if left <= 0:
             break
-        take = min(left, ko.open_amount(db, ko.doc_type("INV"), inv))
+        code = code_of[inv.id]
+        take = min(left, ko.open_amount(db, ko.doc_type(code), inv))
         if take <= 0:
             continue
-        ko.knock(db, p, ("INV", inv), ("OR", doc), take, source=source)
-        n += 1
-        doc.lines.append(CustomerReceiptLine(line_no=n, invoice_id=inv.id, amount=take))
+        ko.knock(db, p, (code, inv), ("OR", doc), take, source=source)
+        if code == "INV":  # receipt lines name invoices; a DN shows in the knock-offs
+            n += 1
+            doc.lines.append(CustomerReceiptLine(line_no=n, invoice_id=inv.id, amount=take))
         left -= take
 
 

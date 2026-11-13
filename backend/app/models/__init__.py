@@ -75,10 +75,14 @@ from app.models.pur import (  # noqa: F401
 from app.models.sal import (  # noqa: F401
     CustomerCn,
     CustomerCnLine,
+    CustomerDebitNote,
+    CustomerDebitNoteLine,
     DeliveryOrder,
     DeliveryOrderLine,
     Quotation,
     QuotationLine,
     SalesInvoice,
     SalesInvoiceLine,
+    SalesOrder,
+    SalesOrderLine,
 )

@@ -396,6 +396,7 @@ class ItemLocationOut(BaseModel):
     effective: ReorderSet
     shelf: str | None
     on_order: Decimal
+    on_sales_order: Decimal = Decimal(0)
     below_reorder: bool
 
 

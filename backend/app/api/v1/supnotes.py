@@ -14,7 +14,7 @@ from app.services import supnotes as svc
 
 router = APIRouter(prefix="/supplier-notes", tags=["supplier notes"])
 
-Kind = Literal["debit-note", "credit-adjustment", "refund"]
+Kind = Literal["debit-note", "credit-adjustment", "refund", "customer-debit-note"]
 Status = Literal["DRAFT", "SAVED", "POSTED", "VOIDED"]
 Method = Literal["CASH", "CHEQUE", "TRANSFER", "CARD", "EWALLET", "OTHER"]
 Amount = Annotated[Decimal, Field(gt=0, max_digits=18, decimal_places=2)]
@@ -34,9 +34,11 @@ class LineIn(BaseModel):
 
 class DocIn(BaseModel):
     doc_date: date
-    supplier_id: uuid.UUID
+    supplier_id: uuid.UUID | None = None
+    customer_id: uuid.UUID | None = None
     location_id: uuid.UUID
     supplier_ref_no: str | None = Field(default=None, max_length=50)
+    customer_ref_no: str | None = Field(default=None, max_length=50)
     remark: str | None = Field(default=None, max_length=500)
     # refund only
     amount: Amount | None = None
@@ -49,8 +51,10 @@ class DocPatch(BaseModel):
     version: int = Field(ge=1)
     doc_date: date | None = None
     supplier_id: uuid.UUID | None = None
+    customer_id: uuid.UUID | None = None
     location_id: uuid.UUID | None = None
     supplier_ref_no: str | None = Field(default=None, max_length=50)
+    customer_ref_no: str | None = Field(default=None, max_length=50)
     remark: str | None = Field(default=None, max_length=500)
     amount: Amount | None = None
     method: Method | None = None
@@ -86,10 +90,13 @@ class DocOut(BaseModel):
     kind: str
     doc_no: str | None
     doc_date: date
-    supplier_id: uuid.UUID
+    supplier_id: uuid.UUID | None = None
+    customer_id: uuid.UUID | None = None
     location_id: uuid.UUID
     status: str
-    supplier_ref_no: str | None
+    supplier_ref_no: str | None = None
+    customer_ref_no: str | None = None
+    due_date: date | None = None
     remark: str | None
     subtotal: Decimal | None = None
     tax_total: Decimal | None = None
@@ -127,6 +134,20 @@ def _out(kind: str, doc, warnings=None, open_amount=None) -> DocOut:
 
 def _values(body: BaseModel, kind: str) -> dict[str, Any]:
     v = body.model_dump(exclude_unset=True)
+    drop = (
+        ("supplier_id", "supplier_ref_no")
+        if kind == "customer-debit-note"
+        else (
+            "customer_id",
+            "customer_ref_no",
+        )
+    )
+    for f in drop:
+        v.pop(f, None)
+    if kind == "customer-debit-note" and "customer_id" not in v and isinstance(body, DocIn):
+        raise_bad("Pick the customer")
+    if kind != "customer-debit-note" and "supplier_id" not in v and isinstance(body, DocIn):
+        raise_bad("Pick the supplier")
     if kind != "refund":
         for f in ("amount", "method", "bank_ref"):
             v.pop(f, None)
@@ -153,6 +174,7 @@ def list_docs(
     db: DB,
     status: Status | None = None,
     supplier_id: uuid.UUID | None = None,
+    customer_id: uuid.UUID | None = None,
     date_from: date | None = None,
     date_to: date | None = None,
     q: str | None = None,
@@ -164,7 +186,7 @@ def list_docs(
         p,
         kind,
         status=status,
-        supplier_id=supplier_id,
+        party_id=supplier_id or customer_id,
         date_from=date_from,
         date_to=date_to,
         q=q,
@@ -216,3 +238,15 @@ def post_doc(kind: Kind, doc_id: uuid.UUID, body: VersionIn, p: CurrentUser, db:
 @router.post("/{kind}/{doc_id}/void")
 def void_doc(kind: Kind, doc_id: uuid.UUID, body: VoidIn, p: CurrentUser, db: DB) -> DocOut:
     return _out(kind, svc.void_doc(db, p, kind, doc_id, body.version, body.reason))
+
+
+# The customer debit note (CDN) uses the same handlers under its own path.
+customer_router = APIRouter(prefix="/customer-notes", tags=["customer notes"])
+for route in list(router.routes):
+    customer_router.add_api_route(
+        route.path.removeprefix("/supplier-notes"),
+        route.endpoint,
+        methods=list(route.methods),
+        status_code=route.status_code,
+        response_model=route.response_model,
+    )

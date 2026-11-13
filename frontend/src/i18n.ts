@@ -534,6 +534,22 @@ const en = {
   pickAccount: "Pick an account.",
   systemAccount: "used by documents",
   newJv: "Journal voucher",
+  // step 32: sales orders, customer debit notes
+  "sales-order": "Sales order",
+  "customer-dn": "Customer debit note",
+  "hint_customer-dn": "We charge the customer more (delivery charge, under-billing). Adds to what they owe; receipts pay it like an invoice.",
+  deliveryDate: "Delivery date",
+  deliveredOf: "Delivered",
+  fullyDelivered: "Fully delivered",
+  closeSo: "Close order (no more deliveries)",
+  reopenSo: "Reopen order",
+  fromSo: "from SO",
+  soPickHint: "Take all of it or part of it now; the rest stays on the order for later.",
+  createDraft: "Create draft",
+  takeNow: "This time",
+  warnOVER_SO: "More than is left on the sales order",
+  onSalesOrder: "On sales order",
+  customerDocNo: "Customer's ref.",
   jvHint: "For entries no document makes: opening balances, depreciation, accruals, owner's money. Must balance. Receivables, payables and stock are kept by the documents.",
 };
 

@@ -27,7 +27,8 @@ interface Line {
 }
 interface NoteDoc {
   id: string; doc_no: string | null; doc_date: string; status: string; version: number;
-  supplier_id: string; location_id: string; supplier_ref_no: string | null; remark: string | null;
+  supplier_id?: string; customer_id?: string; location_id: string;
+  supplier_ref_no?: string | null; customer_ref_no?: string | null; remark: string | null;
   subtotal?: string | null; tax_total?: string | null; total?: string | null;
   amount?: string | null; method?: string | null; bank_ref?: string | null; open?: string | null;
   void_reason: string | null; lines: Line[]; warnings?: Warning[];
@@ -45,7 +46,10 @@ export function NoteForm({ def, id }: { def: KindDef; id: string }) {
   const { t, can } = useSession();
   const nav = useNavigate();
   const refund = def.kind === "supplier-refund";
-  const listPath = `/${def.area === "finance" ? "finance" : "purchases"}?kind=${def.kind}`;
+  const customer = def.party === "customer";
+  const partyPath = customer ? "/customers" : "/suppliers";
+  const listArea = def.area === "finance" ? "finance" : def.area === "sales" ? "sales" : "purchases";
+  const listPath = `/${listArea}?kind=${def.kind}`;
 
   const [doc, setDoc] = useState<NoteDoc | null>(null);
   const [party, setParty] = useState<Party | null>(null);
@@ -80,10 +84,12 @@ export function NoteForm({ def, id }: { def: KindDef; id: string }) {
 
   const apply = useCallback(async (d: NoteDoc) => {
     setDoc(d);
-    const sup = await api<Party>(`/suppliers/${d.supplier_id}`).catch(() => null);
-    setParty(sup ?? { id: d.supplier_id, code: "", name: "…" });
+    const pid = (d.customer_id ?? d.supplier_id) as string;
+    const sup = await api<Party>(`${partyPath}/${pid}`).catch(() => null);
+    setParty(sup ?? { id: pid, code: "", name: "…" });
     setHead({
-      doc_date: d.doc_date, location_id: d.location_id, supplier_ref_no: d.supplier_ref_no ?? "",
+      doc_date: d.doc_date, location_id: d.location_id,
+      supplier_ref_no: (customer ? d.customer_ref_no : d.supplier_ref_no) ?? "",
       remark: d.remark ?? "", amount: d.amount != null ? String(Number(d.amount)) : "",
       method: d.method ?? "TRANSFER", bank_ref: d.bank_ref ?? "",
     });
@@ -97,7 +103,7 @@ export function NoteForm({ def, id }: { def: KindDef; id: string }) {
     }
     setWarnings(d.warnings ?? []);
     setDirty(false);
-  }, [refund]);
+  }, [refund, customer, partyPath]);
 
   useEffect(() => {
     if (id === "new") return;
@@ -115,7 +121,7 @@ export function NoteForm({ def, id }: { def: KindDef; id: string }) {
   }, [refund, party, doc?.status]);
 
   const searchSuppliers = useCallback(
-    (q: string) => api<Page<Party>>("/suppliers", { query: { q, page_size: 8 } }).then((p) => p.items), []);
+    (q: string) => api<Page<Party>>(partyPath, { query: { q, page_size: 8 } }).then((p) => p.items), [partyPath]);
   const rate = (tid: string) => Number(taxes.find((x) => x.id === tid)?.rate ?? 0);
   const est = useMemo(() => {
     let sub = 0, tax = 0;
@@ -144,8 +150,8 @@ export function NoteForm({ def, id }: { def: KindDef; id: string }) {
     return null;
   };
   const body = () => ({
-    doc_date: h.doc_date, supplier_id: party?.id, location_id: h.location_id,
-    supplier_ref_no: h.supplier_ref_no.trim() || null, remark: h.remark.trim() || null,
+    doc_date: h.doc_date, [`${def.party}_id`]: party?.id, location_id: h.location_id,
+    [`${def.party}_ref_no`]: h.supplier_ref_no.trim() || null, remark: h.remark.trim() || null,
     ...(refund ? {
       amount: h.amount.trim(), method: h.method, bank_ref: h.bank_ref.trim() || null,
       lines: credits.concat((doc?.lines ?? []).filter((l) => !credits.some((c) => c.id === l.doc_id))
@@ -228,7 +234,7 @@ export function NoteForm({ def, id }: { def: KindDef; id: string }) {
         <span className="muted">{t(`hint_${def.kind}` as Key)}</span>
         <div className="doc-head">
           <div className="field wide">
-            <label htmlFor="party">{t("supplier")}</label>
+            <label htmlFor="party">{t(customer ? "customer" : "supplier")}</label>
             <Picker<Party> id="party" search={searchSuppliers} keepText disabled={!editable}
                     initial={party ? [party.code, party.name].filter(Boolean).join(" · ") : ""}
                     label={(p) => `${p.code} · ${p.name}`} placeholder={t("searchParty")}
@@ -247,7 +253,7 @@ export function NoteForm({ def, id }: { def: KindDef; id: string }) {
             </select>
           </div>
           <div className="field">
-            <label htmlFor="ref">{t("supplierDocNo")}</label>
+            <label htmlFor="ref">{t(customer ? "customerDocNo" : "supplierDocNo")}</label>
             <input id="ref" className="input" value={h.supplier_ref_no} disabled={!editable} maxLength={50}
                    onChange={(e) => setH({ supplier_ref_no: e.target.value })} />
           </div>
@@ -409,11 +415,12 @@ export function NoteForm({ def, id }: { def: KindDef; id: string }) {
         title={t(def.kind).toUpperCase()}
         docNo={doc.doc_no}
         status={doc.status}
-        partyLabel={t("supplier")}
+        partyLabel={t(customer ? "billTo" : "supplier")}
         party={party}
         meta={[
           [t("date"), doc.doc_date],
-          [t("supplierDocNo"), doc.supplier_ref_no],
+          [t(customer ? "customerDocNo" : "supplierDocNo"), (customer ? doc.customer_ref_no : doc.supplier_ref_no) ?? null],
+          ...(customer ? [[t("dueDate"), (doc as NoteDoc & { due_date?: string }).due_date ?? null]] as [string, string | null][] : []),
           ...(refund ? [[t("method"), t(`method${doc.method}` as Key)], [t("bankRef"), doc.bank_ref]] as [string, string | null][] : []),
         ]}
         columns={refund
