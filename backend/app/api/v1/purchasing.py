@@ -30,6 +30,7 @@ class LineIn(BaseModel):
     unit_price: Decimal | None = Field(default=None, ge=0, max_digits=18, decimal_places=4)
     discount_pct: Decimal = Field(default=Decimal(0), ge=0, le=100, decimal_places=4)
     tax_code_id: uuid.UUID | None = None
+    price_incl_tax: bool = False
     remark: str | None = Field(default=None, max_length=200)
     # grn only: the purchase order line this delivery fills (price defaults to the PO's)
     po_line_id: uuid.UUID | None = None
@@ -41,6 +42,12 @@ class DocIn(BaseModel):
     location_id: uuid.UUID
     supplier_ref_no: str | None = Field(default=None, max_length=50)
     remark: str | None = Field(default=None, max_length=500)
+    supplier_do_no: str | None = Field(default=None, max_length=50)
+    reference: str | None = Field(default=None, max_length=100)
+    import_decl_no: str | None = Field(default=None, max_length=50)
+    term_days: int | None = Field(default=None, ge=0, le=365)
+    header_discount: Decimal | None = Field(default=None, ge=0, max_digits=18, decimal_places=2)
+    rounding_adj: Decimal | None = Field(default=None, ge=-1, le=1, decimal_places=2)
     # supplier-cn only
     completeness: Completeness | None = None
     ref_invoice_no: str | None = Field(default=None, max_length=50)
@@ -56,6 +63,12 @@ class DocPatch(BaseModel):
     location_id: uuid.UUID | None = None
     supplier_ref_no: str | None = Field(default=None, max_length=50)
     remark: str | None = Field(default=None, max_length=500)
+    supplier_do_no: str | None = Field(default=None, max_length=50)
+    reference: str | None = Field(default=None, max_length=100)
+    import_decl_no: str | None = Field(default=None, max_length=50)
+    term_days: int | None = Field(default=None, ge=0, le=365)
+    header_discount: Decimal | None = Field(default=None, ge=0, max_digits=18, decimal_places=2)
+    rounding_adj: Decimal | None = Field(default=None, ge=-1, le=1, decimal_places=2)
     completeness: Completeness | None = None
     ref_invoice_no: str | None = Field(default=None, max_length=50)
     expected_date: date | None = None
@@ -83,6 +96,8 @@ class LineOut(BaseModel):
     discount_pct: Decimal
     tax_code_id: uuid.UUID | None
     tax_rate: Decimal
+    price_incl_tax: bool = False
+    disc_alloc: Decimal | None = sensitive("cost")
     line_subtotal: Decimal | None = sensitive("cost")
     line_tax: Decimal | None = sensitive("cost")
     line_total: Decimal | None = sensitive("cost")
@@ -102,6 +117,16 @@ class DocOut(BaseModel):
     status: str
     supplier_ref_no: str | None
     remark: str | None
+    supplier_do_no: str | None = None
+    reference: str | None = None
+    import_decl_no: str | None = None
+    term_days: int | None = None
+    due_date: date | None = None
+    header_discount: Decimal | None = sensitive("cost")
+    rounding_adj: Decimal | None = sensitive("cost")
+    # single grn / supplier-cn only: knocked off against payments so far, and what is left
+    paid: Decimal | None = sensitive("cost")
+    balance: Decimal | None = sensitive("cost")
     currency: str
     subtotal: Decimal | None = sensitive("cost")
     tax_total: Decimal | None = sensitive("cost")
@@ -130,8 +155,11 @@ def _line(ln, p, received):
     return shape(LineOut, v, p)
 
 
-def _out(doc, p, warnings: list[dict[str, Any]] | None = None, received=None) -> DocOut:
+def _out(doc, p, warnings: list[dict[str, Any]] | None = None, received=None, paid=None) -> DocOut:
     extra: dict[str, Any] = {"lines": [_line(ln, p, received) for ln in doc.lines]}
+    if paid is not None:
+        extra["paid"] = paid
+        extra["balance"] = doc.total - paid
     if hasattr(doc, "expected_date"):
         extra["expected_date"] = doc.expected_date
         extra["closed_at"] = doc.closed_at
@@ -155,6 +183,9 @@ def _values(body: BaseModel, kind: str) -> dict[str, Any]:
             v.pop(f, None)
     if kind != "purchase-order":
         v.pop("expected_date", None)
+    for f in ("header_discount", "rounding_adj"):  # blank = none
+        if f in v and v[f] is None:
+            v[f] = Decimal(0)
     if "lines" in v and v["lines"] is not None:
         v["lines"] = [dict(ln) for ln in v["lines"]]
         if kind != "grn":
@@ -228,7 +259,8 @@ def list_docs(
 def get_doc(kind: Kind, doc_id: uuid.UUID, p: CurrentUser, db: DB) -> DocOut:
     doc = svc.get_doc(db, p, kind, doc_id)
     received = svc.received_by_line(db, doc) if kind == "purchase-order" else None
-    return _out(doc, p, received=received)
+    paid = svc.paid_so_far(db, doc) if kind != "purchase-order" else None
+    return _out(doc, p, received=received, paid=paid)
 
 
 @router.post("/{kind}", status_code=201, **EXCLUDE_UNSET)

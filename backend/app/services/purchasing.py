@@ -18,7 +18,7 @@ Lifecycle (design doc section 4):
 import re
 import uuid
 from dataclasses import dataclass
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 from typing import Any
 
@@ -50,9 +50,8 @@ from app.models import (
 from app.services import audit, stock
 from app.services import knockoff as ko
 from app.services.auth import Principal
-from app.services.doclib import EDITABLE, check_common, line_amounts
+from app.services.doclib import EDITABLE, check_common, line_amounts, q2
 from app.services.doclib import q4 as _q4
-from app.services.doclib import set_totals as _set_totals
 from app.services.doclib import today as _today
 from app.services.numbering import next_doc_no
 
@@ -291,6 +290,7 @@ def _build_lines(
                 discount_pct=disc,
                 tax_code_id=tax.id if tax else None,
                 tax_rate=rate,
+                price_incl_tax=bool(ln.get("price_incl_tax")),
                 line_subtotal=subtotal,
                 line_tax=line_tax,
                 line_total=subtotal + line_tax,
@@ -315,6 +315,51 @@ def _last_costs(db: Session, p: Principal, item_ids: set) -> dict:
         .distinct(GrnLine.item_id)
     ).all()
     return dict(rows)
+
+
+def _settle(doc) -> None:
+    """Line and header amounts from the line inputs, the header discount and the cent
+    adjustment. Tax-inclusive lines are split into net + tax first; the header discount is
+    then spread over the lines by net value (the last line takes the cents left over), so
+    each line's cost and tax are net of it. Totals: subtotal + tax + rounding_adj."""
+    hundred = Decimal(100)
+    parts = []
+    for ln in doc.lines:
+        gross = q2(ln.qty * ln.unit_price * (hundred - ln.discount_pct) / hundred)
+        pre = q2(gross * hundred / (hundred + ln.tax_rate)) if ln.price_incl_tax else gross
+        parts.append((ln, gross, pre))
+    total_pre = sum((pre for _, _, pre in parts), Decimal(0))
+    disc = doc.header_discount or Decimal(0)
+    if disc < 0:
+        raise BadRequest("The document discount cannot be negative")
+    if disc > total_pre:
+        raise BusinessRule(
+            "The document discount is more than the goods are worth",
+            {"discount": str(disc), "subtotal": str(total_pre)},
+        )
+    given = Decimal(0)
+    for i, (ln, gross, pre) in enumerate(parts):
+        if i == len(parts) - 1:
+            alloc = disc - given
+        else:
+            alloc = q2(disc * pre / total_pre) if total_pre else Decimal(0)
+            given += alloc
+        net = pre - alloc
+        if ln.price_incl_tax and not alloc:
+            tax = gross - pre  # keep the supplier's tax-inclusive amount to the cent
+        else:
+            tax = q2(net * ln.tax_rate / hundred)
+        ln.disc_alloc = alloc
+        ln.line_subtotal = net
+        ln.line_tax = tax
+        ln.line_total = net + tax
+        ln.unit_cost = _q4(net / ln.base_qty) if ln.base_qty else Decimal(0)
+    doc.subtotal = sum((ln.line_subtotal for ln in doc.lines), Decimal(0))
+    doc.tax_total = sum((ln.line_tax for ln in doc.lines), Decimal(0))
+    doc.total = doc.subtotal + doc.tax_total + (doc.rounding_adj or Decimal(0))
+    doc.due_date = (
+        doc.doc_date + timedelta(days=doc.term_days) if doc.term_days is not None else None
+    )
 
 
 def _po_lines(db: Session, ids: set, *, lock: bool = False) -> dict:
@@ -495,6 +540,8 @@ def create_doc(db: Session, p: Principal, kind: str, *, lines: list[dict[str, An
     k = _kind(kind)
     p.require("pur.doc.create")
     _check_header_refs(db, p, v)
+    if k.key == "grn" and v.get("term_days") is None:
+        v["term_days"] = db.get(Supplier, v["supplier_id"]).term_days
     doc = k.header(
         company_id=p.company_id,
         status="DRAFT",
@@ -505,7 +552,7 @@ def create_doc(db: Session, p: Principal, kind: str, *, lines: list[dict[str, An
     doc.lines = _build_lines(
         db, p, k, lines, supplier_id=doc.supplier_id, ref_invoice_no=v.get("ref_invoice_no")
     )
-    _set_totals(doc)
+    _settle(doc)
     db.add(doc)
     db.flush()
     audit.record(db, p, "create", k.entity, doc.id, after=_snapshot(doc))
@@ -547,7 +594,9 @@ def update_doc(
                 "unit_price": ln.unit_price if ln.price_source == "DOC" else None,
                 "discount_pct": ln.discount_pct if ln.price_source == "DOC" else 0,
                 "tax_code_id": ln.tax_code_id,
+                "price_incl_tax": ln.price_incl_tax,
                 "remark": ln.remark,
+                "po_line_id": getattr(ln, "po_line_id", None),
             }
             for ln in doc.lines
         ]
@@ -561,7 +610,7 @@ def update_doc(
             ref_invoice_no=getattr(doc, "ref_invoice_no", None),
         )
         db.flush()
-    _set_totals(doc)
+    _settle(doc)
     warnings: list[dict[str, Any]] = []
     if doc.status == "SAVED":
         warnings = _validate_for_save(db, p, k, doc)
@@ -763,6 +812,7 @@ def receive_po(
                 "unit_price": ln.unit_price,
                 "discount_pct": ln.discount_pct,
                 "tax_code_id": ln.tax_code_id,
+                "price_incl_tax": ln.price_incl_tax,
                 "remark": ln.remark,
                 "po_line_id": ln.id,
             }
@@ -779,3 +829,10 @@ def receive_po(
         location_id=po.location_id,
         remark=f"From {po.doc_no}",
     )
+
+
+def paid_so_far(db: Session, doc):
+    """Amount of a posted GRN / supplier CN already knocked off (payments, CNs, ...)."""
+    if doc.status != "POSTED":
+        return Decimal(0)
+    return ko.knocked(db, [doc.id]).get(doc.id, Decimal(0))

@@ -32,6 +32,7 @@ interface LineOut {
   do_line_id?: string | null;
   invoiced_qty?: string;  // delivery order: already on saved or posted invoices
   received_qty?: string;  // purchase order: already on saved or posted GRNs
+  price_incl_tax?: boolean;
   po_line_id?: string | null;
 }
 interface DocOut {
@@ -44,11 +45,15 @@ interface DocOut {
   completeness?: string | null; ref_invoice_no?: string | null;
   source_kind?: string | null; void_reason: string | null;
   expected_date?: string | null; closed_at?: string | null;
+  supplier_do_no?: string | null; reference?: string | null; import_decl_no?: string | null;
+  term_days?: number | null; header_discount?: string | null; rounding_adj?: string | null;
+  paid?: string | null; balance?: string | null;
   lines: LineOut[]; warnings?: Warning[];
 }
 interface Row {
   key: number; item: Item; uom: string; qty: string; unit_price: string; discount_pct: string;
   tax_code_id: string; remark: string; do_line_id: string | null; po_line_id?: string | null;
+  incl?: boolean;        // purchase line: the price includes tax
   serverPrice?: string;  // what the server priced a line left on "auto"
   invoiced?: string;     // delivery order line: quantity already invoiced
 }
@@ -56,6 +61,8 @@ interface Head {
   doc_date: string; party: Party | null; location_id: string; ref_no: string; remark: string;
   valid_until: string; ref_invoice_id: string; reason: string; completeness: string;
   ref_invoice_no: string; expected_date: string;
+  supplier_do_no: string; reference: string; import_decl_no: string; term_days: string;
+  header_discount: string; rounding_adj: string;
 }
 
 let nextKey = 1;
@@ -63,6 +70,8 @@ let nextKey = 1;
 const emptyHead = (): Head => ({
   doc_date: today(), party: null, location_id: "", ref_no: "", remark: "", valid_until: "",
   ref_invoice_id: "", reason: "", completeness: "", ref_invoice_no: "", expected_date: "",
+  supplier_do_no: "", reference: "", import_decl_no: "", term_days: "", header_discount: "",
+  rounding_adj: "",
 });
 
 function newRow(def: KindDef, item: Item, uom?: string): Row {
@@ -140,6 +149,11 @@ function Form({ def, id }: { def: KindDef; id: string }) {
       ref_invoice_id: d.ref_invoice_id ?? "", reason: d.reason ?? "",
       completeness: d.completeness ?? "", ref_invoice_no: d.ref_invoice_no ?? "",
       expected_date: d.expected_date ?? "",
+      supplier_do_no: d.supplier_do_no ?? "", reference: d.reference ?? "",
+      import_decl_no: d.import_decl_no ?? "",
+      term_days: d.term_days != null ? String(d.term_days) : "",
+      header_discount: Number(d.header_discount ?? 0) ? String(Number(d.header_discount)) : "",
+      rounding_adj: Number(d.rounding_adj ?? 0) ? String(Number(d.rounding_adj)) : "",
     });
     setRows(d.lines.map((l) => {
       const own = l.price_source === "DOC";
@@ -150,7 +164,7 @@ function Form({ def, id }: { def: KindDef; id: string }) {
         serverPrice: own ? undefined : l.unit_price,
         discount_pct: String(Number(l.discount_pct)), tax_code_id: l.tax_code_id ?? "",
         remark: l.remark ?? "", do_line_id: l.do_line_id ?? null, po_line_id: l.po_line_id ?? null,
-        invoiced: l.invoiced_qty ?? l.received_qty,
+        invoiced: l.invoiced_qty ?? l.received_qty, incl: !!l.price_incl_tax,
       };
     }));
     if (!keepWarnings) setWarnings(d.warnings ?? []);
@@ -221,6 +235,7 @@ function Form({ def, id }: { def: KindDef; id: string }) {
 
   // --- numbers shown before the server has priced the document -----------------------------
 
+  const isPurchase = def.area === "purchase";
   const rate = (taxId: string) => Number(taxes.find((x) => x.id === taxId)?.rate ?? 0);
   const priceOf = (r: Row): number | null => {
     if (isNum(r.unit_price)) return Number(r.unit_price);
@@ -231,8 +246,13 @@ function Form({ def, id }: { def: KindDef; id: string }) {
   const amounts = (r: Row) => {
     const p = priceOf(r);
     if (p === null || !isNum(r.qty)) return null;
-    const sub = round2(Number(r.qty) * p * (1 - Number(r.discount_pct || 0) / 100));
-    return { sub, tax: round2((sub * rate(r.tax_code_id)) / 100) };
+    const gross = round2(Number(r.qty) * p * (1 - Number(r.discount_pct || 0) / 100));
+    const rt = rate(r.tax_code_id);
+    if (r.incl) {
+      const sub = round2((gross * 100) / (100 + rt));
+      return { sub, tax: round2(gross - sub) };
+    }
+    return { sub: gross, tax: round2((gross * rt) / 100) };
   };
   const estimate = useMemo(() => {
     let sub = 0, tax = 0;
@@ -242,9 +262,14 @@ function Form({ def, id }: { def: KindDef; id: string }) {
       sub += a.sub;
       tax += a.tax;
     }
-    return { sub: round2(sub), tax: round2(tax), total: round2(sub + tax) };
+    // the document discount comes off before tax, spread by value (the server does it per line)
+    const disc = isPurchase && isNum(head.header_discount) ? Number(head.header_discount) : 0;
+    if (disc && sub) tax = round2(tax * (sub - disc) / sub);
+    sub = round2(sub - disc);
+    const adj = isPurchase && isNum(head.rounding_adj) ? Number(head.rounding_adj) : 0;
+    return { sub, tax: round2(tax), total: round2(sub + tax + adj), disc, adj };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [rows, taxes]);
+  }, [rows, taxes, head.header_discount, head.rounding_adj]);
   const showServer = doc && !dirty;
 
   // --- talking to the server -----------------------------------------------------------------
@@ -269,6 +294,12 @@ function Form({ def, id }: { def: KindDef; id: string }) {
     remark: head.remark.trim() || null,
     ...(def.kind === "quotation" ? { valid_until: head.valid_until || null } : {}),
     ...(def.kind === "purchase-order" ? { expected_date: head.expected_date || null } : {}),
+    ...(def.area === "purchase" ? {
+      supplier_do_no: head.supplier_do_no.trim() || null, reference: head.reference.trim() || null,
+      import_decl_no: head.import_decl_no.trim() || null,
+      ...(head.term_days.trim() !== "" ? { term_days: Number(head.term_days) } : {}),
+      header_discount: head.header_discount.trim() || "0", rounding_adj: head.rounding_adj.trim() || "0",
+    } : {}),
     ...(def.kind === "customer-cn"
       ? { ref_invoice_id: head.ref_invoice_id || null, reason: head.reason.trim() || null } : {}),
     ...(def.kind === "supplier-cn"
@@ -282,6 +313,7 @@ function Form({ def, id }: { def: KindDef; id: string }) {
       remark: r.remark.trim() || null,
       ...(r.do_line_id ? { do_line_id: r.do_line_id } : {}),
       ...(r.po_line_id ? { po_line_id: r.po_line_id } : {}),
+      ...(def.area === "purchase" ? { price_incl_tax: !!r.incl } : {}),
     })),
   });
 
@@ -444,6 +476,49 @@ function Form({ def, id }: { def: KindDef; id: string }) {
             <input id="ref" className="input" value={head.ref_no} disabled={!editable} maxLength={50}
                    onChange={(e) => setH({ ref_no: e.target.value })} />
           </div>
+          {isPurchase && (
+            <>
+              {def.kind !== "purchase-order" && (
+                <div className="field">
+                  <label htmlFor="dono">{t("supplierDoNo")}</label>
+                  <input id="dono" className="input" value={head.supplier_do_no} disabled={!editable}
+                         maxLength={50} onChange={(e) => setH({ supplier_do_no: e.target.value })} />
+                </div>
+              )}
+              <div className="field">
+                <label htmlFor="refx">{t("docReference")}</label>
+                <input id="refx" className="input" value={head.reference} disabled={!editable}
+                       maxLength={100} onChange={(e) => setH({ reference: e.target.value })} />
+              </div>
+              {def.kind === "grn" && (
+                <>
+                  <div className="field">
+                    <label htmlFor="terms">{t("termDays")}</label>
+                    <input id="terms" className="input num" inputMode="numeric" value={head.term_days}
+                           disabled={!editable} placeholder={t("supplierTerms")}
+                           onChange={(e) => setH({ term_days: e.target.value.replace(/\D/g, "") })} />
+                  </div>
+                  <div className="field">
+                    <label htmlFor="k1">{t("importDecl")}</label>
+                    <input id="k1" className="input" value={head.import_decl_no} disabled={!editable}
+                           maxLength={50} onChange={(e) => setH({ import_decl_no: e.target.value })} />
+                  </div>
+                </>
+              )}
+              <div className="field">
+                <label htmlFor="hdisc">{t("docDiscount")}</label>
+                <input id="hdisc" className="input num" inputMode="decimal" value={head.header_discount}
+                       disabled={!editable} placeholder="0.00"
+                       onChange={(e) => setH({ header_discount: e.target.value })} />
+              </div>
+              <div className="field">
+                <label htmlFor="cadj">{t("centAdj")}</label>
+                <input id="cadj" className="input num" inputMode="decimal" value={head.rounding_adj}
+                       disabled={!editable} placeholder="0.00"
+                       onChange={(e) => setH({ rounding_adj: e.target.value })} />
+              </div>
+            </>
+          )}
           {def.kind === "purchase-order" && (
             <div className="field">
               <label htmlFor="expected">{t("expectedDate")}</label>
@@ -519,6 +594,7 @@ function Form({ def, id }: { def: KindDef; id: string }) {
                 <th>#</th><th>{t("item")}</th><th>{t("uom")}</th>
                 <th className="num">{t("qtyLabel")}</th><th className="num">{t("unitPrice")}</th>
                 <th className="num">{t("discPct")}</th><th>{t("tax")}</th>
+                {isPurchase && <th title={t("inclTaxHint")}>{t("inclTax")}</th>}
                 <th className="num">{t("lineTotal")}</th>{editable && <th />}
               </tr>
             </thead>
@@ -575,6 +651,12 @@ function Form({ def, id }: { def: KindDef; id: string }) {
                         ))}
                       </select>
                     </td>
+                    {isPurchase && (
+                      <td style={{ textAlign: "center" }}>
+                        <input type="checkbox" checked={!!r.incl} disabled={!editable} aria-label={t("inclTax")}
+                               onChange={(e) => setRow(r.key, { incl: e.target.checked })} />
+                      </td>
+                    )}
                     <td className="num">{a ? money(a.sub + a.tax) : "—"}</td>
                     {editable && (
                       <td>
@@ -599,17 +681,31 @@ function Form({ def, id }: { def: KindDef; id: string }) {
           <div className="totals">
             {showServer ? (
               <>
+                {Number(doc.header_discount ?? 0) > 0 && (
+                  <div><span>{t("docDiscount")}</span><b>− {money(doc.header_discount)}</b></div>
+                )}
                 <div><span>{t("subtotalLabel")}</span><b>{money(doc.subtotal)}</b></div>
                 <div><span>{t("taxLabel")}</span><b>{money(doc.tax_total)}</b></div>
+                {Number(doc.rounding_adj ?? 0) !== 0 && (
+                  <div><span>{t("centAdj")}</span><b>{money(doc.rounding_adj)}</b></div>
+                )}
                 <div className="grand"><span>{t("total")}</span><b>{money(doc.total)}</b></div>
+                {doc.paid != null && doc.status === "POSTED" && (
+                  <>
+                    <div><span>{t("paidSoFar")}</span><b>{money(doc.paid)}</b></div>
+                    <div><span>{t("balanceLeft")}</span><b>{money(doc.balance)}</b></div>
+                  </>
+                )}
                 {doc.gross_profit != null && (
                   <div><span>{t("grossProfit")}</span><b>{money(doc.gross_profit)}</b></div>
                 )}
               </>
             ) : (
               <>
+                {!!estimate?.disc && <div><span>{t("docDiscount")}</span><b>− {money(estimate.disc)}</b></div>}
                 <div><span>{t("subtotalLabel")}</span><b>{money(estimate?.sub)}</b></div>
                 <div><span>{t("taxLabel")}</span><b>{money(estimate?.tax)}</b></div>
+                {!!estimate?.adj && <div><span>{t("centAdj")}</span><b>{money(estimate.adj)}</b></div>}
                 <div className="grand"><span>{t("total")}</span><b>{money(estimate?.total)}</b></div>
                 <span className="muted">{t("estimated")}</span>
               </>
@@ -738,6 +834,9 @@ function Form({ def, id }: { def: KindDef; id: string }) {
           [t("store"), store ? `${store.code} · ${store.name}` : null],
           [t(def.party === "customer" ? "customerRef" : "supplierRef"), doc[def.refField] as string | null],
           [t("dueDate"), doc.due_date],
+          [t("supplierDoNo"), doc.supplier_do_no],
+          [t("docReference"), doc.reference],
+          [t("importDecl"), doc.import_decl_no],
           [t("validUntil"), doc.valid_until],
           [t("refInvoice"), invoices.find((x) => x.id === doc.ref_invoice_id)?.doc_no],
           [t("refInvoiceNo"), doc.ref_invoice_no],
@@ -746,8 +845,12 @@ function Form({ def, id }: { def: KindDef; id: string }) {
         columns={printColumns}
         rows={printRows}
         totals={isDO ? [] : [
+          ...(Number(doc.header_discount ?? 0) > 0
+            ? [[t("docDiscount"), `− ${money(doc.header_discount)}`] as [string, string]] : []),
           [t("subtotalLabel"), money(doc.subtotal)],
           [t("taxLabel"), money(doc.tax_total)],
+          ...(Number(doc.rounding_adj ?? 0) !== 0
+            ? [[t("centAdj"), money(doc.rounding_adj)] as [string, string]] : []),
           [t("total"), money(doc.total), true],
         ]}
         remark={doc.remark}

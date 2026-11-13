@@ -473,6 +473,17 @@ const en = {
   makePoHint: "Tick rows of one store, pick the supplier, and a draft PO is made with the suggested quantities.",
   pickSupplier: "Supplier",
   pickOneStore: "Tick rows of one store only",
+  // step 29: supplier invoice header
+  supplierDoNo: "Supplier D/O no.",
+  docReference: "Reference",
+  importDecl: "Import declaration no.",
+  supplierTerms: "supplier's terms",
+  docDiscount: "Document discount",
+  centAdj: "Cent adjustment",
+  inclTax: "Incl. tax",
+  inclTaxHint: "Tick when the supplier's price already includes tax",
+  paidSoFar: "Paid / knocked off",
+  balanceLeft: "Balance",
 };
 
 export type Key = keyof typeof en;

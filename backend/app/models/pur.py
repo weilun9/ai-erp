@@ -10,6 +10,7 @@ from datetime import date, datetime
 from decimal import Decimal
 
 from sqlalchemy import (
+    Boolean,
     CheckConstraint,
     Date,
     DateTime,
@@ -41,6 +42,15 @@ class PurchaseHeader(UUIDPk, AuditColumns):
     status: Mapped[str] = mapped_column(String(10), server_default=text("'DRAFT'"))
     supplier_ref_no: Mapped[str | None] = mapped_column(String(50))  # supplier's own number
     remark: Mapped[str | None] = mapped_column(String(500))
+    supplier_do_no: Mapped[str | None] = mapped_column(String(50))  # their delivery order
+    reference: Mapped[str | None] = mapped_column(String(100))
+    import_decl_no: Mapped[str | None] = mapped_column(String(50))  # customs (K1) number
+    term_days: Mapped[int | None] = mapped_column(Integer)  # default: the supplier's terms
+    due_date: Mapped[date | None] = mapped_column(Date)
+    # Whole-document discount (amount, before tax), spread over the lines by value so each
+    # line's cost and tax come out net of it; and the cent adjustment to match their total.
+    header_discount: Mapped[Decimal] = mapped_column(Money, server_default=text("0"))
+    rounding_adj: Mapped[Decimal] = mapped_column(Money, server_default=text("0"))
     currency: Mapped[str] = mapped_column(String(3), server_default=text("'MYR'"))
     subtotal: Mapped[Decimal] = mapped_column(Money, server_default=text("0"))
     tax_total: Mapped[Decimal] = mapped_column(Money, server_default=text("0"))
@@ -72,6 +82,10 @@ class PurchaseLine(UUIDPk):
     # original GRN/invoice for a return), MISSING (return with no price yet; cannot save).
     price_source: Mapped[str] = mapped_column(String(10), server_default=text("'DOC'"))
     discount_pct: Mapped[Decimal] = mapped_column(Numeric(7, 4), server_default=text("0"))
+    # unit_price already includes tax (the supplier's prices are tax-inclusive)
+    price_incl_tax: Mapped[bool] = mapped_column(Boolean, server_default=text("false"))
+    # this line's share of the header discount; line_subtotal is already net of it
+    disc_alloc: Mapped[Decimal] = mapped_column(Money, server_default=text("0"))
     tax_code_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("md.tax_code.id"))
     tax_rate: Mapped[Decimal] = mapped_column(Numeric(9, 4), server_default=text("0"))
     line_subtotal: Mapped[Decimal] = mapped_column(Money)
