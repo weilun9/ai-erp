@@ -42,6 +42,7 @@ numbers have to be right and permissions have to hold.
 | Stock | Moving-average cost ledger, adjustments, write-offs, transfers, stocktakes |
 | Money | Receipts, supplier payments keyed in from the payment advice (matched to invoices, debit notes and credit notes by the supplier's own numbers), automatic and manual knock-off, statements of account, problem documents for what does not reconcile |
 | Accounting | Chart of accounts; every posted document is booked to the general ledger automatically and reversed when voided; journal vouchers; trial balance, profit and loss, balance sheet, account ledger |
+| Insights (BI) | Sales, gross profit and margin against the previous period, the trend by day / week / month, top items, customers, categories, brands and stores, invoices vs till and till takings by payment method, stock value and what is owed both ways |
 | POS | Shifts, 5-sen cash rounding, supervisor override, returns; works offline as a PWA and uploads queued sales with idempotency keys |
 | E-invoice | LHDN MyInvois UBL 1.0 documents, pre-submission checks, submit / validate / cancel, monthly consolidated e-invoice for walk-in sales, QR on the printout |
 | Access | Tags (permission bundles), field-level redaction, only owner-approved computers can log in |
@@ -59,7 +60,7 @@ story, and CI fails if they do not.
   offline PWA
 - **AI:** OpenAI-compatible chat with tool calling; fastembed (MiniLM) or any embeddings
   endpoint; MCP
-- **Delivery:** GitHub Actions (ruff, migrations, 280 tests, an end-to-end demo script, the
+- **Delivery:** GitHub Actions (ruff, migrations, 283 tests, an end-to-end demo script, the
   retrieval evaluation; TypeScript build), Vercel (static app + the API as one Python
   function), Neon Postgres
 

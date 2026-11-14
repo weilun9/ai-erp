@@ -23,6 +23,7 @@ export function TopBar() {
   const links = (
     <>
       <NavLink to="/" end>{t("home")}</NavLink>
+      {can("report.run") && can("sal.doc.read") && <NavLink to="/insights">{t("insights")}</NavLink>}
       {can("pos.sale.create") && <NavLink to="/till">{t("till")}</NavLink>}
       {can("sal.doc.read") && (
         <NavLink to="/sales" className={pathname.startsWith("/parties/customer") ? "active" : undefined}>

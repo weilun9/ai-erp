@@ -7,12 +7,12 @@ Cost and gross profit appear only for users who may see cost.
 """
 
 import uuid
-from datetime import date
+from datetime import date, timedelta
 from decimal import Decimal
 from typing import Any, Literal
 
 from sqlalchemy import Date, case, cast, func, literal, select, union_all
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, aliased
 
 from app.core.errors import NotFound
 from app.localization.my import TIMEZONE
@@ -23,9 +23,12 @@ from app.models import (
     Grn,
     GrnLine,
     Item,
+    ItemAttribute,
+    ItemCategory,
     ItemLocation,
     Location,
     PosLine,
+    PosPayment,
     PosSale,
     SalesInvoice,
     SalesInvoiceLine,
@@ -50,9 +53,9 @@ def _location_filter(p: Principal, location_id: uuid.UUID | None):
 def _sales_lines(p: Principal, date_from: date, date_to: date, locations):
     """One row per posted line: sign +1 for invoices, -1 for credit notes."""
     parts = []
-    for header, line, sign in (
-        (SalesInvoice, SalesInvoiceLine, 1),
-        (CustomerCn, CustomerCnLine, -1),
+    for header, line, sign, channel in (
+        (SalesInvoice, SalesInvoiceLine, 1, "INVOICE"),
+        (CustomerCn, CustomerCnLine, -1, "INVOICE"),
     ):
         stmt = (
             select(
@@ -65,6 +68,7 @@ def _sales_lines(p: Principal, date_from: date, date_to: date, locations):
                 (line.base_qty * line.unit_cost * sign).label("cost"),
                 header.id.label("doc_id"),
                 literal(sign).label("sign"),
+                literal(channel).label("channel"),
             )
             .join(line, line.header_id == header.id)
             .where(
@@ -88,6 +92,7 @@ def _sales_lines(p: Principal, date_from: date, date_to: date, locations):
             (PosLine.base_qty * PosLine.unit_cost).label("cost"),
             PosSale.id.label("doc_id"),
             case((PosSale.kind == "SALE", 1), else_=-1).label("sign"),
+            literal("POS").label("channel"),
         )
         .join(PosLine, PosLine.sale_id == PosSale.id)
         .where(PosSale.company_id == p.company_id, day.between(date_from, date_to))
@@ -308,3 +313,219 @@ def _last_suppliers(db: Session, p: Principal, item_ids) -> dict:
         .distinct(GrnLine.item_id)
     ).all()
     return {i: (sid, code) for i, sid, code in rows}
+
+
+# --- BI dashboard ---------------------------------------------------------------------------
+
+
+def _bucket(span_days: int) -> str:
+    return "day" if span_days <= 62 else "week" if span_days <= 370 else "month"
+
+
+def _bucket_start(d: date, bucket: str) -> date:
+    if bucket == "week":
+        return d - timedelta(days=d.weekday())
+    if bucket == "month":
+        return d.replace(day=1)
+    return d
+
+
+def _buckets(date_from: date, date_to: date, bucket: str) -> list[date]:
+    out, d = [], _bucket_start(date_from, bucket)
+    while d <= date_to:
+        out.append(d)
+        if bucket == "day":
+            d += timedelta(days=1)
+        elif bucket == "week":
+            d += timedelta(days=7)
+        else:
+            d = (d.replace(day=28) + timedelta(days=4)).replace(day=1)
+    return out
+
+
+def _totals(db: Session, s) -> dict[str, Decimal]:
+    r = db.execute(
+        select(
+            func.coalesce(func.sum(s.c.sales), 0),
+            func.coalesce(func.sum(s.c.cost), 0),
+            func.count(func.distinct(case((s.c.sign == 1, s.c.doc_id)))),
+            func.coalesce(func.sum(s.c.qty), 0),
+        )
+    ).one()
+    return {"sales": q4(r[0]), "cost": q4(r[1]), "documents": r[2], "qty": q4(r[3])}
+
+
+def bi_dashboard(
+    db: Session,
+    p: Principal,
+    *,
+    date_from: date,
+    date_to: date,
+    location_id: uuid.UUID | None = None,
+    top: int = 10,
+) -> dict[str, Any]:
+    """Everything the BI screen shows for a period: headline figures against the period
+    just before it (same length), the trend by day / week / month (picked from the length),
+    the best items, customers, categories and brands, sales by store, by channel (invoices
+    vs POS), POS takings by payment method, and - for users who may see them - stock value
+    and what customers owe us / we owe suppliers. Cost and profit need field.cost.read."""
+    p.require("report.run", "sal.doc.read")
+    if date_to < date_from:
+        date_from, date_to = date_to, date_from
+    span = (date_to - date_from).days + 1
+    prev_to = date_from - timedelta(days=1)
+    prev_from = prev_to - timedelta(days=span - 1)
+    locations = _location_filter(p, location_id)
+    show_cost = p.has("field.cost.read")
+    top = max(1, min(top, 50))
+
+    s = _sales_lines(p, date_from, date_to, locations)
+    now = _totals(db, s)
+    before = _totals(db, _sales_lines(p, prev_from, prev_to, locations))
+
+    def headline(t: dict[str, Decimal]) -> dict[str, Any]:
+        out: dict[str, Any] = {
+            "sales": t["sales"],
+            "documents": t["documents"],
+            "avg_sale": q4(t["sales"] / t["documents"]) if t["documents"] else ZERO,
+        }
+        if show_cost:
+            gp = t["sales"] - t["cost"]
+            out["gross_profit"] = q4(gp)
+            out["margin_pct"] = q4(gp * 100 / t["sales"]) if t["sales"] else ZERO
+        return out
+
+    # trend
+    bucket = _bucket(span)
+    if bucket == "day":
+        key = s.c.doc_date
+    else:
+        key = cast(func.date_trunc(bucket, s.c.doc_date), Date)
+    trend_rows = {
+        r.k: r
+        for r in db.execute(
+            select(
+                key.label("k"),
+                func.sum(s.c.sales).label("sales"),
+                func.sum(s.c.cost).label("cost"),
+            ).group_by(key)
+        ).all()
+    }
+    trend = []
+    for b in _buckets(date_from, date_to, bucket):
+        r = trend_rows.get(b)
+        row: dict[str, Any] = {"period": b, "sales": q4(r.sales) if r else ZERO}
+        if show_cost:
+            row["gross_profit"] = q4(r.sales - r.cost) if r else ZERO
+        trend.append(row)
+
+    def ranked(key_col, label, joins=(), limit=top):
+        stmt = select(
+            key_col.label("key"),
+            label.label("label"),
+            func.sum(s.c.qty).label("qty"),
+            func.sum(s.c.sales).label("sales"),
+            func.sum(s.c.cost).label("cost"),
+        ).select_from(s)
+        for model, on in joins:
+            stmt = stmt.outerjoin(model, on)
+        stmt = stmt.group_by(key_col, label).order_by(func.sum(s.c.sales).desc()).limit(limit)
+        out = []
+        for r in db.execute(stmt).all():
+            row = {
+                "key": str(r.key) if r.key else None,
+                "label": str(r.label),
+                "qty": q4(r.qty),
+                "sales": q4(r.sales),
+            }
+            if show_cost:
+                row["gross_profit"] = q4(r.sales - r.cost)
+            out.append(row)
+        return out
+
+    cat = aliased(ItemCategory)
+    brand = aliased(ItemAttribute)
+    item_join = (Item, Item.id == s.c.item_id)
+    result: dict[str, Any] = {
+        "date_from": date_from,
+        "date_to": date_to,
+        "previous": {"date_from": prev_from, "date_to": prev_to, **headline(before)},
+        "current": headline(now),
+        "bucket": bucket,
+        "trend": trend,
+        "items": ranked(s.c.item_id, func.concat(Item.code, " ", Item.name), [item_join]),
+        "customers": ranked(
+            s.c.customer_id,
+            case(
+                (Customer.id.is_(None), "Walk-in (POS)"),
+                else_=func.concat(Customer.code, " ", Customer.name),
+            ),
+            [(Customer, Customer.id == s.c.customer_id)],
+            limit=8,
+        ),
+        "categories": ranked(
+            Item.category_id,
+            func.coalesce(cat.name, "No category"),
+            [item_join, (cat, cat.id == Item.category_id)],
+            limit=8,
+        ),
+        "brands": ranked(
+            Item.brand_id,
+            func.coalesce(brand.name, "No brand"),
+            [item_join, (brand, brand.id == Item.brand_id)],
+            limit=8,
+        ),
+        "stores": ranked(
+            s.c.location_id,
+            func.concat(Location.code, " ", Location.name),
+            [(Location, Location.id == s.c.location_id)],
+        ),
+        "channels": ranked(s.c.channel, s.c.channel),
+        "payments": _pos_payments(db, p, date_from, date_to, locations),
+    }
+    result["snapshot"] = _snapshot(db, p, locations)
+    return result
+
+
+def _pos_payments(db: Session, p: Principal, date_from: date, date_to: date, locations):
+    day = cast(func.timezone(TIMEZONE, PosSale.sold_at), Date)
+    stmt = (
+        select(PosPayment.method, func.sum(PosPayment.amount))
+        .join(PosSale, PosSale.id == PosPayment.sale_id)
+        .where(PosSale.company_id == p.company_id, day.between(date_from, date_to))
+        .group_by(PosPayment.method)
+        .order_by(func.sum(PosPayment.amount).desc())
+    )
+    if locations is not None:
+        stmt = stmt.where(PosSale.location_id.in_(locations))
+    return [{"method": m, "amount": q4(a)} for m, a in db.execute(stmt).all()]
+
+
+def _snapshot(db: Session, p: Principal, locations) -> dict[str, Any]:
+    """Balances as of now: stock at cost (cost permission), receivables / payables (finance
+    permission; from the open documents, company-wide)."""
+    out: dict[str, Any] = {}
+    if p.has("field.cost.read") and p.has("inv.balance.read"):
+        stmt = select(func.coalesce(func.sum(StockBalance.qty * StockBalance.avg_cost), 0)).where(
+            StockBalance.company_id == p.company_id, StockBalance.qty > 0
+        )
+        if locations is not None:
+            stmt = stmt.where(StockBalance.location_id.in_(locations))
+        out["stock_value"] = q4(db.scalar(stmt))
+    if p.has("field.finance.read") and p.has("fin.doc.read"):
+        from app.services import knockoff as ko  # avoid an import cycle
+
+        owed = {"C": ZERO, "S": ZERO}
+        for dt in ko.DOCS.values():
+            m = dt.model
+            docs = db.scalars(
+                select(m).where(m.company_id == p.company_id, m.status == "POSTED")
+            ).all()
+            done = ko.knocked(db, [d.id for d in docs])
+            for d in docs:
+                side, v = ko.side_value(dt, d)
+                left = v - done.get(d.id, ZERO)
+                owed[dt.party_type] += left if side == "D" else -left
+        out["customers_owe"] = q4(owed["C"])
+        out["we_owe_suppliers"] = q4(owed["S"])
+    return out

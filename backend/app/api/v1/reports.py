@@ -55,3 +55,18 @@ def reorder(
 ) -> dict[str, Any]:
     """Items at or below their reorder level, with a suggested order quantity."""
     return reports.reorder(db, p, location_id=location_id, limit=limit)
+
+
+@router.get("/bi")
+def bi_dashboard(
+    p: CurrentUser,
+    db: DB,
+    date_from: date,
+    date_to: date,
+    location_id: uuid.UUID | None = None,
+    top: Annotated[int, Query(ge=1, le=50)] = 10,
+) -> dict[str, Any]:
+    """The BI screen: headline figures vs the previous period, trend, rankings, mixes."""
+    return reports.bi_dashboard(
+        db, p, date_from=date_from, date_to=date_to, location_id=location_id, top=top
+    )
