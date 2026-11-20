@@ -117,13 +117,28 @@ def list_files(
     db: DB,
     status: Literal["NEW", "EXTRACTED", "CONFIRMED", "REJECTED"] | None = None,
     doc_id: uuid.UUID | None = None,
+    queue: bool = False,
     page: Annotated[int, Query(ge=1)] = 1,
     page_size: Annotated[int, Query(ge=1, le=200)] = 50,
 ) -> Page:
+    """`queue=true`: what is still to be handled, oldest first."""
     rows, total = svc.list_files(
-        db, p, status=status, doc_id=doc_id, page=page, page_size=page_size
+        db, p, status=status, doc_id=doc_id, queue=queue, page=page, page_size=page_size
     )
     return Page(items=[FileOut(**_cols(FileOut, f)) for f in rows], total=total)
+
+
+class EngineOut(BaseModel):
+    ready: bool
+    model: str | None
+
+
+@router.get("/engine")
+def engine(p: CurrentUser) -> EngineOut:
+    """Is a recognition (vision) model set up? Without one, documents are keyed in by hand."""
+    p.require("pur.doc.read")
+    ex = svc.vision.get_extractor()
+    return EngineOut(ready=ex is not None, model=getattr(ex, "model", None) if ex else None)
 
 
 @router.get("/{file_id}")

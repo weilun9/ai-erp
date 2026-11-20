@@ -104,6 +104,31 @@ export async function api<T>(
   return (await parse(res)) as T;
 }
 
+/** A file the API serves (a scanned document): fetched with the token, as a Blob. */
+export async function apiBlob(path: string): Promise<Blob> {
+  const send = () => fetch(`${BASE}${path}`, {
+    credentials: "same-origin",
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  });
+  let res = await send();
+  if (res.status === 401 && (await refresh())) res = await send();
+  if (!res.ok) await parse(res);  // throws the API error
+  return res.blob();
+}
+
+/** multipart upload (the browser sets the boundary) */
+export async function apiUpload<T>(path: string, form: FormData): Promise<T> {
+  const send = () => fetch(`${BASE}${path}`, {
+    method: "POST",
+    credentials: "same-origin",
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+    body: form,
+  });
+  let res = await send();
+  if (res.status === 401 && (await refresh())) res = await send();
+  return (await parse(res)) as T;
+}
+
 // --- shapes the screens use ---------------------------------------------------------------
 
 export interface Me {

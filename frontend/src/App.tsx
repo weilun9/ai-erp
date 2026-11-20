@@ -16,6 +16,7 @@ import { Settings } from "./pages/Settings";
 import { Reorder } from "./pages/Reorder";
 import { Accounting } from "./pages/Accounting";
 import { Insights } from "./pages/Insights";
+import { Scan } from "./pages/Scan";
 import { Till } from "./pages/Till";
 import { useCallback, useState } from "react";
 import { useOutboxSync } from "./pos/sync";
@@ -66,6 +67,7 @@ export function App() {
           <Route path="/reorder" element={<Reorder />} />
           <Route path="/accounting" element={<Accounting />} />
           <Route path="/insights" element={<Insights />} />
+          <Route path="/scan" element={<Scan />} />
           <Route path="/docs/:kind/:id" element={<DocForm />} />
           <Route path="/till" element={<Till />} />
           <Route path="*" element={<Navigate to="/" replace />} />

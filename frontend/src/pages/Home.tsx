@@ -140,6 +140,7 @@ export function Home() {
           <Card title={t("quickNew")}>
             <div className="quick-actions">
               {can("sal.doc.create") && <Link to="/docs/sales-invoice/new">+ {t("sales-invoice")}</Link>}
+              {can("pur.doc.create") && <Link to="/scan">{t("scanTitle")}</Link>}
               {can("pur.doc.create") && <Link to="/docs/grn/new">+ {t("grn")}</Link>}
               {can("fin.doc.create") && <Link to="/docs/receipt/new">+ {t("receipt")}</Link>}
               {can("fin.doc.create") && <Link to="/docs/supplier-payment/new">+ {t("supplier-payment")}</Link>}

@@ -398,3 +398,23 @@ def test_cleaning_numbers_and_malaysian_dates() -> None:
     assert vision.day("05-01-26") == date(2026, 1, 5)
     assert vision.day("2026-11-08") == date(2026, 11, 8)
     assert vision.day("31/02/2026") is None
+
+
+# --- the scan screen's queue --------------------------------------------------------------
+
+
+def test_queue_lists_unhandled_files_oldest_first(mighty, client) -> None:
+    a = _upload(client, mighty, _png("red"), name="a.png").json()
+    b = _upload(client, mighty, _png("blue"), name="b.png").json()
+    c = _upload(client, mighty, _png("green"), name="c.png").json()
+    client.post(f"{IN}/{b['id']}/reject", json={"reason": "not ours"}, headers=mighty["h"])
+    q = client.get(IN, params={"queue": True}, headers=mighty["h"]).json()
+    assert [f["id"] for f in q["items"]] == [a["id"], c["id"]]
+
+
+def test_engine_status(mighty, client) -> None:
+    off = client.get(f"{IN}/engine", headers=mighty["h"]).json()
+    assert off == {"ready": False, "model": None}
+    vision.set_extractor(Fake(INVOICE))
+    on = client.get(f"{IN}/engine", headers=mighty["h"]).json()
+    assert on["ready"] is True

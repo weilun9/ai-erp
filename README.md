@@ -29,8 +29,12 @@ numbers have to be right and permissions have to hold.
   keyword 71%. The default follows the measurement. `python -m app.kb_eval` reruns it in CI.
 - **MCP server.** The read tools are also exposed over the Model Context Protocol with
   purpose-limited tokens, so an external agent gets the same permission-checked view.
-- **Scan intake.** A photographed supplier invoice goes through a vision model, then through
-  checks that mark each field trusted / check / missing before it becomes a draft.
+- **Scan intake.** Supplier papers (invoices, CNs, payment advices, bank slips, return notes)
+  are uploaded or photographed into a queue, read by a vision model and sorted into their
+  document type. The person checks the reading against the original side by side, then
+  corrects it in a spreadsheet pop-up (edit, undo, cancel, confirm) where every cell is
+  marked trusted / check / missing by server-side checks; confirming makes a draft document
+  and opens the next paper. Without a vision model the same screen works by hand.
 
 ## What the system does
 
@@ -60,7 +64,7 @@ story, and CI fails if they do not.
   offline PWA
 - **AI:** OpenAI-compatible chat with tool calling; fastembed (MiniLM) or any embeddings
   endpoint; MCP
-- **Delivery:** GitHub Actions (ruff, migrations, 283 tests, an end-to-end demo script, the
+- **Delivery:** GitHub Actions (ruff, migrations, 285 tests, an end-to-end demo script, the
   retrieval evaluation; TypeScript build), Vercel (static app + the API as one Python
   function), Neon Postgres
 

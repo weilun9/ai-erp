@@ -139,18 +139,24 @@ def list_files(
     *,
     status: str | None = None,
     doc_id: uuid.UUID | None = None,
+    queue: bool = False,
     page: int = 1,
     page_size: int = 50,
 ):
+    """`queue`: the files still to be handled (new or recognised), oldest first - the order
+    the scan screen works through them."""
     p.require("pur.doc.read")
     stmt = select(InboxFile).where(InboxFile.company_id == p.company_id)
+    if queue:
+        stmt = stmt.where(InboxFile.status.in_(("NEW", "EXTRACTED")))
     if status:
         stmt = stmt.where(InboxFile.status == status)
     if doc_id:
         stmt = stmt.where(InboxFile.linked_doc_id == doc_id)
     total = db.scalar(select(func.count()).select_from(stmt.subquery()))
+    order = InboxFile.created_at.asc() if queue else InboxFile.created_at.desc()
     rows = db.scalars(
-        stmt.order_by(InboxFile.created_at.desc()).offset((page - 1) * page_size).limit(page_size)
+        stmt.order_by(order, InboxFile.id).offset((page - 1) * page_size).limit(page_size)
     ).all()
     return list(rows), total
 
