@@ -46,13 +46,13 @@ numbers have to be right and permissions have to hold.
 | Items | Multi-unit items with prices 1–5 (customer price levels), 11/12/13-digit barcodes, brand / group / colour / size, minimum selling price, reorder levels per store, stock per store, who supplied it and the purchase-price history |
 | Sales | Quotation → sales order → delivery order → invoice → credit note; orders and delivery orders are fulfilled line by line, in parts; customer debit notes; credit-limit and below-cost warnings |
 | Purchasing | Purchase orders received into goods-received notes (also the supplier invoice) in parts; a reorder list that suggests quantities net of what is on order and turns into a PO; document discount spread into line cost, tax-inclusive prices, cent adjustment, terms and due date; goods returns, supplier debit notes, credit notes without goods, refunds from suppliers |
-| Stock | Moving-average cost ledger, adjustments, write-offs, transfers, stocktakes |
+| Stock | Moving-average cost ledger, adjustments, write-offs, transfers, stocktakes; batch numbers with expiry dates (earliest expiry out first) and serial numbers, with a trace of every batch / serial; barcode labels on A4 sheets or a label roll |
 | Money | Receipts, supplier payments keyed in from the payment advice (matched to invoices, debit notes and credit notes by the supplier's own numbers), automatic and manual knock-off, statements of account, problem documents for what does not reconcile |
-| Accounting | Chart of accounts; every posted document is booked to the general ledger automatically and reversed when voided; journal vouchers; trial balance, profit and loss, balance sheet, account ledger |
+| Accounting | Chart of accounts; every posted document is booked to the general ledger automatically and reversed when voided; journal vouchers; trial balance, profit and loss, balance sheet, account ledger; bank reconciliation against the pasted bank statement (auto-match); year-end close that locks the year |
 | Insights (BI) | Sales, gross profit and margin against the previous period, the trend by day / week / month, top items, customers, categories, brands and stores, invoices vs till and till takings by payment method, stock value and what is owed both ways |
 | POS | Shifts, 5-sen cash rounding, supervisor override, returns; works offline as a PWA and uploads queued sales with idempotency keys |
 | E-invoice | LHDN MyInvois UBL 1.0 documents, pre-submission checks, submit / validate / cancel, monthly consolidated e-invoice for walk-in sales, QR on the printout |
-| Access | Tags (permission bundles), field-level redaction, only owner-approved computers can log in |
+| Access | Tags (permission bundles), field-level redaction, only owner-approved computers can log in; an audit trail of every change with before / after |
 | Paper | Every document prints or saves as PDF with letterhead, tax identity and signature lines |
 
 The general ledger is built from the documents rather than by each module: a sync step
@@ -121,12 +121,11 @@ token made on the Scan screen (*Connect Doc2Excel*).
 - **LHDN:** the e-invoice flow is tested against a stand-in for MyInvois, and the public demo
   uses one too (its documents are marked *simulated*). It has not been run against the real
   LHDN sandbox; v1.1 digital signatures and debit-note e-invoices are not implemented.
-- **Accounting:** no year-end close, SST return, bank reconciliation or export to an
-  external accounting package yet.
+- **Accounting:** no SST return or export to an external accounting package yet.
 - **Public demo:** retrieval there is keyword-only (the local embedding model does not fit a
   serverless function); administration of users, computers and company details is read-only;
   the butler answers a limited number of questions a day.
-- **Not built:** batch / expiry and serial tracking, bills of material, promotions and
+- **Not built:** bills of material, promotions and
   loyalty, receipt-printer and cash-drawer drivers, a Singapore tax pack, an online store.
 - Single-developer project: no load testing, no security audit.
 
