@@ -682,3 +682,17 @@ select.cell-in option { background: var(--surface-2); }
 }
 .accent-dot:active { transform: scale(0.92); }
 .accent-dot.on { box-shadow: 0 0 0 2px var(--bg), 0 0 0 4px var(--dot); }
+
+/* --- audit trail ----------------------------------------------------------------------------- */
+.audit-filters .field { min-width: 150px; }
+.audit-table td { vertical-align: top; }
+.audit-table .small { font-size: 12px; margin-top: 2px; }
+.audit-badge { margin-left: 6px; background: color-mix(in srgb, var(--accent) 14%, transparent); color: var(--accent); }
+.audit-action { display: inline-block; padding: 2px 10px; border-radius: 999px; font-size: 12px;
+  background: var(--fill); text-transform: capitalize; }
+.audit-action.a-create, .audit-action.a-post { background: var(--green-soft); color: var(--green); }
+.audit-action.a-void, .audit-action.a-delete, .audit-action.a-reject { background: var(--red-soft); color: var(--red); }
+.audit-action.a-update { background: color-mix(in srgb, var(--accent) 12%, transparent); color: var(--accent); }
+.audit-changes { margin: 4px 0; font-size: 13px; }
+.audit-changes td { white-space: pre-wrap; word-break: break-word; max-width: 420px; }
+.audit-changes td.was { color: var(--ink-faint); text-decoration: line-through; text-decoration-color: color-mix(in srgb, var(--red) 60%, transparent); }

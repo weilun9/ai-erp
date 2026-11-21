@@ -6,6 +6,7 @@ import type { Page } from "../api";
 import { useSession } from "../session";
 import { errorText } from "../docs/shared";
 import type { Key } from "../i18n";
+import { AuditTrail } from "./Audit";
 import { ACCENTS, ACCENT_COLOURS, readLook, saveLook } from "../theme";
 import type { Look, ThemeMode } from "../theme";
 
@@ -14,7 +15,7 @@ import type { Look, ThemeMode } from "../theme";
 // the company profile that goes on printed documents and e-invoices.
 // On the public demo the server refuses changes to people, devices and the company.
 
-type Tab = "tax" | "units" | "categories" | "groups" | "users" | "tags" | "devices" | "company" | "look";
+type Tab = "tax" | "units" | "categories" | "groups" | "users" | "tags" | "devices" | "company" | "audit" | "look";
 const TABS: { id: Tab; label: Key; perm: string }[] = [
   { id: "tax", label: "setTax", perm: "md.setup.read" },
   { id: "units", label: "setUnits", perm: "md.setup.read" },
@@ -24,6 +25,7 @@ const TABS: { id: Tab; label: Key; perm: string }[] = [
   { id: "tags", label: "setTags", perm: "core.tag.read" },
   { id: "devices", label: "setDevices", perm: "core.device.manage" },
   { id: "company", label: "setCompany", perm: "core.company.read" },
+  { id: "audit", label: "setAudit", perm: "audit.read" },
   { id: "look", label: "setLook", perm: "" }, // this device only: anyone may change it
 ];
 
@@ -80,6 +82,7 @@ export function Settings() {
       {tab === "tags" && <Tags />}
       {tab === "devices" && <Devices />}
       {tab === "company" && <Company />}
+      {tab === "audit" && <AuditTrail />}
       {tab === "look" && <Appearance />}
     </div>
   );
