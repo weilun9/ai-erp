@@ -64,6 +64,8 @@ class Settings(BaseSettings):
     kb_dir: str = "var/kb"
     kb_max_mb: int = 20
 
+    # auto | vision | ocr | off - see app/services/vision.py
+    vision_engine: str = "auto"
     vision_base_url: str = ""
     vision_api_key: str = ""
     vision_model: str = ""

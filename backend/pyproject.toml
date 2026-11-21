@@ -25,6 +25,8 @@ dependencies = [
 [project.optional-dependencies]
 # Local embeddings for the knowledge base (CPU, in-process; EMBED_PROVIDER=local)
 local-embed = ["fastembed>=0.9"]
+# scan intake without a vision API: local OCR, then the text model (LLM_*) - see vision.py
+local-ocr = ["rapidocr>=3.10", "onnxruntime>=1.20"]
 dev = [
     "pytest>=8.3",
     "httpx>=0.28",

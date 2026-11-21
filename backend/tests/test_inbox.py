@@ -1,5 +1,6 @@
 import copy
 import io
+import json
 from datetime import date, timedelta
 from decimal import Decimal
 
@@ -418,3 +419,72 @@ def test_engine_status(mighty, client) -> None:
     vision.set_extractor(Fake(INVOICE))
     on = client.get(f"{IN}/engine", headers=mighty["h"]).json()
     assert on["ready"] is True
+
+
+# --- local OCR engine (RapidOCR + the text model) -----------------------------------------
+
+
+def test_ocr_rows_keep_lines_and_columns() -> None:
+    box = lambda x0, x1, y: [[x0, y], [x1, y], [x1, y + 10], [x0, y + 10]]  # noqa: E731
+    rows = vision.group_rows(
+        [box(10, 60, 50), box(200, 240, 52), box(10, 120, 10), box(62, 90, 50)],
+        ["Milo", "528.00", "NESTLE SDN BHD", "1kg"],
+        [0.99, 0.95, 0.99, 0.4],
+    )
+    assert rows == [["NESTLE SDN BHD"], ["Milo 1kg?", "528.00"]]  # low score marked with ?
+
+
+def test_engine_choice(monkeypatch) -> None:
+    s = get_settings()
+    vision.reset_extractor()
+    monkeypatch.setattr(vision, "ocr_available", lambda: True)
+    monkeypatch.setattr(s, "llm_base_url", "http://llm.test/v1")
+    monkeypatch.setattr(s, "llm_model", "text-model")
+    monkeypatch.setattr(s, "vision_base_url", "")
+    monkeypatch.setattr(s, "vision_model", "")
+    assert isinstance(vision.get_extractor(), vision.OcrThenText)  # auto, no vision key
+    monkeypatch.setattr(s, "vision_base_url", "http://vl.test/v1")
+    monkeypatch.setattr(s, "vision_model", "vl")
+    assert isinstance(vision.get_extractor(), vision.OpenAICompatible)  # a vision key wins
+    monkeypatch.setattr(s, "vision_engine", "ocr")
+    assert isinstance(vision.get_extractor(), vision.OcrThenText)
+    monkeypatch.setattr(s, "vision_engine", "off")
+    assert vision.get_extractor() is None
+
+
+def test_ocr_engine_sends_the_text_to_the_model(monkeypatch) -> None:
+    monkeypatch.setattr(
+        vision, "ocr_text", lambda pages: "NESTLE | INVOICE NIV-1\nMilo | 2 | 528.00"
+    )
+    sent = {}
+
+    class Reply:
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            body = {"kind": "INVOICE", "doc_no": "NIV-1", "uncertain": ["lines.0.qty"]}
+            return {
+                "choices": [{"message": {"content": json.dumps(body)}}],
+                "usage": {"prompt_tokens": 50, "completion_tokens": 20},
+            }
+
+    def post(url, **kw):
+        sent.update(url=url, json=kw["json"])
+        return Reply()
+
+    monkeypatch.setattr(vision.httpx, "post", post)
+    got = vision.OcrThenText("http://llm.test/v1", "k", "text-model", 30).extract(
+        [(b"", "image/jpeg")], "INVOICE"
+    )
+    assert sent["url"] == "http://llm.test/v1/chat/completions"
+    assert "NIV-1" in sent["json"]["messages"][1]["content"]
+    assert (got.data["doc_no"], got.uncertain, got.model) == (
+        "NIV-1",
+        ["lines.0.qty"],
+        "RapidOCR + text-model",
+    )
+
+    monkeypatch.setattr(vision, "ocr_text", lambda pages: "  ")
+    with pytest.raises(vision.ExtractionError):
+        vision.OcrThenText("http://llm.test/v1", "k", "m", 30).extract([(b"", "image/jpeg")], None)

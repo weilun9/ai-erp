@@ -34,7 +34,10 @@ numbers have to be right and permissions have to hold.
   document type. The person checks the reading against the original side by side, then
   corrects it in a spreadsheet pop-up (edit, undo, cancel, confirm) where every cell is
   marked trusted / check / missing by server-side checks; confirming makes a draft document
-  and opens the next paper. Without a vision model the same screen works by hand.
+  and opens the next paper. Recognition runs on either a vision model (any OpenAI-compatible
+  endpoint) or, with no vision key, local OCR (RapidOCR, the engine of the companion
+  Doc2Excel app) whose text the butler's text model shapes into the same JSON; with neither,
+  the same screen works by hand.
 
 ## What the system does
 
@@ -64,7 +67,7 @@ story, and CI fails if they do not.
   offline PWA
 - **AI:** OpenAI-compatible chat with tool calling; fastembed (MiniLM) or any embeddings
   endpoint; MCP
-- **Delivery:** GitHub Actions (ruff, migrations, 285 tests, an end-to-end demo script, the
+- **Delivery:** GitHub Actions (ruff, migrations, 288 tests, an end-to-end demo script, the
   retrieval evaluation; TypeScript build), Vercel (static app + the API as one Python
   function), Neon Postgres
 
@@ -74,7 +77,7 @@ story, and CI fails if they do not.
 docker compose up -d                      # PostgreSQL + pgvector on 127.0.0.1:5433
 cd backend
 python -m venv .venv && .venv/Scripts/activate   # Windows; use bin/activate elsewhere
-pip install -e ".[dev]"
+pip install -e ".[dev]"                   # add ",local-ocr" for scan recognition without a vision key
 python -m app.demo                        # builds the sample shop through the real API
 POSTGRES_DB=erp_demo uvicorn app.main:app --port 8000
 ```

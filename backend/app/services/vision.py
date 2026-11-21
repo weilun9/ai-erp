@@ -1,15 +1,22 @@
 """Document recognition: page images in, one fixed JSON shape out.
 
-The model is reached through any OpenAI-compatible chat endpoint that accepts images
-(the company model gateway, Qwen-VL, a local Ollama...), configured by VISION_* settings.
-Nothing configured = recognition is off and documents are keyed in by hand on the review
-screen. Tests swap in their own extractor with `set_extractor`.
+Two engines (VISION_ENGINE = auto | vision | ocr | off):
+- vision: any OpenAI-compatible chat endpoint that accepts images (Qwen-VL, GPT-4o-mini,
+  Gemini, the company gateway...), configured by VISION_* settings;
+- ocr: local OCR (RapidOCR, PaddleOCR models on ONNX Runtime, as in the Doc2Excel app) reads
+  the text on this machine, then the text model already used by the butler (LLM_*) turns it
+  into the same JSON. No vision key needed; install with `pip install -e ".[local-ocr]"`.
+auto = vision when VISION_* is set, else ocr when it is installed and LLM_* is set, else off.
+Off = documents are keyed in by hand on the scan screen. Tests swap in their own extractor
+with `set_extractor`.
 """
 
 import base64
 import io
 import json
 import re
+import statistics
+import threading
 import time
 from dataclasses import dataclass, field
 from datetime import date
@@ -121,6 +128,32 @@ def to_pages(content: bytes, content_type: str) -> list[tuple[bytes, str]]:
 # --- OpenAI-compatible provider -----------------------------------------------------------
 
 
+def _chat_json(
+    base_url: str, api_key: str, model: str, timeout: float, system: str, content: Any
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """One chat call that must answer with a JSON object: (data, usage)."""
+    body = {
+        "model": model,
+        "temperature": 0,
+        "response_format": {"type": "json_object"},
+        "messages": [
+            {"role": "system", "content": system},
+            {"role": "user", "content": content},
+        ],
+    }
+    headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
+    try:
+        r = httpx.post(
+            f"{base_url.rstrip('/')}/chat/completions", json=body, headers=headers, timeout=timeout
+        )
+        r.raise_for_status()
+        reply = r.json()
+        text = reply["choices"][0]["message"]["content"]
+    except (httpx.HTTPError, KeyError, IndexError, ValueError) as exc:
+        raise ExtractionError(f"Recognition service failed: {exc}") from exc
+    return parse_json(text), reply.get("usage") or {}
+
+
 class OpenAICompatible:
     name = "vision"
 
@@ -139,31 +172,141 @@ class OpenAICompatible:
         for data, mime in pages:
             b64 = base64.b64encode(data).decode()
             content.append({"type": "image_url", "image_url": {"url": f"data:{mime};base64,{b64}"}})
-        body = {
-            "model": self.model,
-            "temperature": 0,
-            "response_format": {"type": "json_object"},
-            "messages": [
-                {"role": "system", "content": PROMPT},
-                {"role": "user", "content": content},
-            ],
-        }
-        headers = {"Authorization": f"Bearer {self.api_key}"} if self.api_key else {}
+        started = time.monotonic()
+        data, usage = _chat_json(
+            self.base_url, self.api_key, self.model, self.timeout, PROMPT, content
+        )
+        return Extracted(
+            data=data,
+            model=self.model,
+            input_tokens=int(usage.get("prompt_tokens") or 0),
+            output_tokens=int(usage.get("completion_tokens") or 0),
+            seconds=time.monotonic() - started,
+            uncertain=[str(x) for x in data.pop("uncertain", None) or []],
+        )
+
+
+# --- local OCR + text model ---------------------------------------------------------------
+
+OCR_PROMPT = (
+    "You read Malaysian supplier documents for a retail shop: invoices, credit notes (CN), "
+    "payment advices / statements, bank transfer slips, and handwritten return notes. "
+    "You get the OCR text of the paper, one printed line per row, cells separated by ' | '. "
+    "OCR can split or merge words and misread characters (0/O, 1/I, 5/S): fix only obvious "
+    "slips, and list any value you had to infer in 'uncertain'. "
+    "Return ONLY one JSON object with exactly this shape (use null for anything not shown, "
+    "never guess numbers, copy numbers and codes exactly as printed):\n"
+    + json.dumps(SCHEMA, indent=1)
+)
+_ocr_engine = None
+_ocr_lock = threading.Lock()
+
+
+def ocr_available() -> bool:
+    try:
+        import rapidocr  # noqa: F401
+    except ImportError:
+        return False
+    return True
+
+
+def _rapid():
+    """The RapidOCR engine, loaded once (the first load takes several seconds)."""
+    global _ocr_engine
+    with _ocr_lock:
+        if _ocr_engine is None:
+            from rapidocr import RapidOCR
+
+            _ocr_engine = RapidOCR()
+        return _ocr_engine
+
+
+def group_rows(boxes, texts, scores=None) -> list[list[str]]:
+    """OCR boxes -> printed lines -> cells. Boxes whose vertical centres are within ~0.6 of
+    a text height share a line; a horizontal gap wider than ~1.6 characters starts a new
+    cell. (The same layout rules as the Doc2Excel app, so tables keep their columns.)"""
+    items = []
+    for i, (box, text) in enumerate(zip(boxes, texts, strict=False)):
+        text = str(text).strip()
+        if not text:
+            continue
+        xs, ys = [float(p[0]) for p in box], [float(p[1]) for p in box]
+        items.append(
+            {
+                "x0": min(xs),
+                "x1": max(xs),
+                "yc": (min(ys) + max(ys)) / 2,
+                "h": max(ys) - min(ys),
+                "t": text + ("?" if scores is not None and scores[i] < 0.6 else ""),
+                "cw": (max(xs) - min(xs)) / max(len(text), 1),
+            }
+        )
+    if not items:
+        return []
+    med_h = statistics.median(i["h"] for i in items) or 10
+    items.sort(key=lambda i: i["yc"])
+    lines: list[list[dict[str, Any]]] = []
+    for it in items:
+        if lines:
+            cur = lines[-1]
+            if abs(it["yc"] - sum(i["yc"] for i in cur) / len(cur)) < 0.6 * med_h:
+                cur.append(it)
+                continue
+        lines.append([it])
+    rows = []
+    for line in lines:
+        line.sort(key=lambda i: i["x0"])
+        cells, prev = [line[0]["t"]], line[0]
+        for it in line[1:]:
+            if it["x0"] - prev["x1"] < 1.6 * max((prev["cw"] + it["cw"]) / 2, 1):
+                cells[-1] += " " + it["t"]
+            else:
+                cells.append(it["t"])
+            prev = it
+        rows.append(cells)
+    return rows
+
+
+def ocr_text(pages: list[tuple[bytes, str]]) -> str:
+    """Page images -> the text, laid out as rows of ' | '-separated cells."""
+    import numpy as np
+    from PIL import Image
+
+    out = []
+    for n, (data, _mime) in enumerate(pages, start=1):
+        img = Image.open(io.BytesIO(data)).convert("RGB")
+        res = _rapid()(np.array(img))
+        boxes = getattr(res, "boxes", None)
+        if boxes is None or len(boxes) == 0:
+            continue
+        rows = group_rows(boxes, res.txts, res.scores)
+        if len(pages) > 1:
+            out.append(f"--- page {n} ---")
+        out.extend(" | ".join(r) for r in rows)
+    return "\n".join(out)
+
+
+class OcrThenText:
+    """Local OCR reads the paper; the text model shapes what it read into the JSON."""
+
+    name = "ocr"
+
+    def __init__(self, base_url: str, api_key: str, model: str, timeout: float) -> None:
+        self.base_url, self.api_key, self.llm, self.timeout = base_url, api_key, model, timeout
+        self.model = f"RapidOCR + {model}"
+
+    def extract(self, pages: list[tuple[bytes, str]], hint: str | None) -> Extracted:
         started = time.monotonic()
         try:
-            r = httpx.post(
-                f"{self.base_url}/chat/completions",
-                json=body,
-                headers=headers,
-                timeout=self.timeout,
-            )
-            r.raise_for_status()
-            reply = r.json()
-            text = reply["choices"][0]["message"]["content"]
-        except (httpx.HTTPError, KeyError, IndexError, ValueError) as exc:
-            raise ExtractionError(f"Recognition service failed: {exc}") from exc
-        usage = reply.get("usage") or {}
-        data = parse_json(text)
+            text = ocr_text(pages)
+        except Exception as exc:  # the OCR library raises its own types
+            raise ExtractionError(f"Local OCR failed: {exc}") from exc
+        if not text.strip():
+            raise ExtractionError("No text found on the page; check the photo or enter by hand")
+        content = f"Document type hint from the user: {hint or 'unknown'}\n\nOCR text:\n{text}"
+        data, usage = _chat_json(
+            self.base_url, self.api_key, self.llm, self.timeout, OCR_PROMPT, content
+        )
         return Extracted(
             data=data,
             model=self.model,
@@ -208,11 +351,16 @@ def get_extractor() -> Extractor | None:
     if _overridden:
         return _override
     s = get_settings()
-    if not (s.vision_base_url and s.vision_model):
-        return None
-    return OpenAICompatible(
-        s.vision_base_url, s.vision_api_key, s.vision_model, s.vision_timeout_seconds
-    )
+    engine = (s.vision_engine or "auto").lower()
+    vision_ready = bool(s.vision_base_url and s.vision_model)
+    ocr_ready = bool(s.llm_base_url and s.llm_model) and ocr_available()
+    if engine in ("vision", "auto") and vision_ready:
+        return OpenAICompatible(
+            s.vision_base_url, s.vision_api_key, s.vision_model, s.vision_timeout_seconds
+        )
+    if engine in ("ocr", "auto") and ocr_ready:
+        return OcrThenText(s.llm_base_url, s.llm_api_key, s.llm_model, s.vision_timeout_seconds)
+    return None
 
 
 # --- cleaning what the model (or a person) typed ------------------------------------------
