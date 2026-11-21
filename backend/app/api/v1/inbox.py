@@ -5,17 +5,19 @@ from datetime import datetime
 from decimal import Decimal
 from typing import Annotated, Any, Literal
 
-from fastapi import APIRouter, File, Form, Query, UploadFile
+from fastapi import APIRouter, File, Form, Header, Query, UploadFile
 from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel, Field
 
 from app.api.deps import DB, CurrentUser
+from app.core.errors import Unauthenticated
 from app.services import intake as svc
+from app.services import scan_tokens
 
 router = APIRouter(prefix="/inbox", tags=["inbox"])
 
 DocKind = Literal["INVOICE", "CN", "PAYMENT", "BANK", "RETURN_NOTE", "OTHER"]
-Source = Literal["UPLOAD", "SCANNER", "PHONE", "WHATSAPP", "EMAIL"]
+Source = Literal["UPLOAD", "SCANNER", "PHONE", "WHATSAPP", "EMAIL", "DOC2EXCEL"]
 
 
 class FileOut(BaseModel):
@@ -126,6 +128,94 @@ def list_files(
         db, p, status=status, doc_id=doc_id, queue=queue, page=page, page_size=page_size
     )
     return Page(items=[FileOut(**_cols(FileOut, f)) for f in rows], total=total)
+
+
+# --- scanning apps (Doc2Excel) push papers in with a scan token ------------------------------
+
+
+class ScanTokenOut(BaseModel):
+    id: uuid.UUID
+    created_at: datetime
+    last_used_at: datetime | None
+
+
+class ScanTokenNew(ScanTokenOut):
+    token: str  # shown once
+    upload_url: str  # relative to the ERP address: POST here with the file
+
+
+@router.post("/tokens", status_code=201)
+def new_scan_token(p: CurrentUser, db: DB) -> ScanTokenNew:
+    """A token for a scanning app on this computer (Doc2Excel): it may only upload papers into
+    this scan queue, as you. Shown once; revoke it here or by signing the computer out."""
+    sess, token = scan_tokens.issue(db, p)
+    return ScanTokenNew(
+        id=sess.id,
+        created_at=sess.created_at,
+        last_used_at=sess.last_used_at,
+        token=token,
+        upload_url="/api/v1/inbox/remote",
+    )
+
+
+@router.get("/tokens")
+def list_scan_tokens(p: CurrentUser, db: DB) -> list[ScanTokenOut]:
+    return [ScanTokenOut.model_validate(t, from_attributes=True) for t in scan_tokens.active(db, p)]
+
+
+@router.delete("/tokens/{token_id}", status_code=204)
+def revoke_scan_token(token_id: uuid.UUID, p: CurrentUser, db: DB) -> None:
+    scan_tokens.revoke(db, p, token_id)
+
+
+def _scan_principal(db, authorization: str | None):
+    token = (authorization or "").removeprefix("Bearer ").strip()
+    p = scan_tokens.principal(db, token) if token else None
+    if p is None:
+        raise Unauthenticated(
+            "Scan token missing, revoked or not allowed; make a new one in the ERP"
+        )
+    return p
+
+
+class RemotePing(BaseModel):
+    ok: bool
+    user: str
+    company_id: uuid.UUID
+    queue: int
+
+
+@router.get("/remote/ping")
+def remote_ping(db: DB, authorization: Annotated[str | None, Header()] = None) -> RemotePing:
+    """For the scanning app's "Test connection" button."""
+    p = _scan_principal(db, authorization)
+    _, waiting = svc.list_files(db, p, queue=True, page_size=1)
+    return RemotePing(ok=True, user=p.display_name, company_id=p.company_id, queue=waiting)
+
+
+@router.post("/remote", status_code=201)
+async def remote_upload(
+    db: DB,
+    file: Annotated[UploadFile, File()],
+    authorization: Annotated[str | None, Header()] = None,
+    location_id: Annotated[uuid.UUID | None, Form()] = None,
+    hint: Annotated[DocKind | None, Form()] = None,
+):
+    """A scanning app sends one paper into the scan queue (it is read and checked on the
+    scan screen, like any upload). The same file twice points at the first one."""
+    p = _scan_principal(db, authorization)
+    content = await file.read()
+    f, already = svc.upload(
+        db,
+        p,
+        filename=file.filename or "scan",
+        content=content,
+        source="DOC2EXCEL",
+        location_id=location_id,
+        hint=hint,
+    )
+    body = FileOut(**_cols(FileOut, f)).model_dump(mode="json")
+    return JSONResponse({**body, "already_uploaded": already}, status_code=200 if already else 201)
 
 
 class EngineOut(BaseModel):

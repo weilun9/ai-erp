@@ -488,3 +488,49 @@ def test_ocr_engine_sends_the_text_to_the_model(monkeypatch) -> None:
     monkeypatch.setattr(vision, "ocr_text", lambda pages: "  ")
     with pytest.raises(vision.ExtractionError):
         vision.OcrThenText("http://llm.test/v1", "k", "m", 30).extract([(b"", "image/jpeg")], None)
+
+
+# --- scanning apps (Doc2Excel) push papers in with a scan token ---------------------------
+
+
+def test_scan_token_lets_an_app_upload_into_the_queue(mighty, client) -> None:
+    h = mighty["h"]
+    made = client.post(f"{IN}/tokens", headers=h)
+    assert made.status_code == 201, made.text
+    tok = made.json()
+    assert tok["upload_url"] == "/api/v1/inbox/remote"
+    app_h = {"Authorization": f"Bearer {tok['token']}"}
+
+    ping = client.get(f"{IN}/remote/ping", headers=app_h)
+    assert ping.status_code == 200 and ping.json()["ok"] is True
+
+    up = client.post(
+        f"{IN}/remote",
+        files={"file": ("from-phone.jpg", _png("yellow"), "image/jpeg")},
+        data={"location_id": mighty["hq"]},
+        headers=app_h,
+    )
+    assert up.status_code == 201, up.text
+    assert up.json()["source"] == "DOC2EXCEL" and up.json()["status"] == "NEW"
+    again = client.post(
+        f"{IN}/remote", files={"file": ("x.jpg", _png("yellow"), "image/jpeg")}, headers=app_h
+    )
+    assert again.status_code == 200 and again.json()["already_uploaded"] is True
+    queue = client.get(IN, params={"queue": True}, headers=h).json()
+    assert up.json()["id"] in [f["id"] for f in queue["items"]]
+
+    # the token only uploads: it is not a web login, and a web token is not a scan token
+    assert client.get("/api/v1/me", headers=app_h).status_code == 401
+    assert client.get(f"{IN}/remote/ping", headers=h).status_code == 401
+
+    listed = client.get(f"{IN}/tokens", headers=h).json()
+    assert [t["id"] for t in listed] == [tok["id"]]
+    assert client.delete(f"{IN}/tokens/{tok['id']}", headers=h).status_code == 204
+    assert client.get(f"{IN}/remote/ping", headers=app_h).status_code == 401
+
+
+def test_cashier_cannot_make_a_scan_token(mighty, client) -> None:
+    from tests.conftest import login
+
+    cashier = login(client, "cashier1")
+    assert client.post(f"{IN}/tokens", headers=cashier).status_code == 403

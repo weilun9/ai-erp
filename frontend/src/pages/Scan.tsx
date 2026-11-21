@@ -24,7 +24,77 @@ interface Detail extends InboxFile {
   review: Review | null;
 }
 
-export const KINDS: Kind[] = ["INVOICE", "CN", "RETURN_NOTE", "PAYMENT", "BANK"];
+/** Connect a scanning app (Doc2Excel): a token that may only upload papers into this queue. */
+function ScanApps() {
+  const { t } = useSession();
+  const [open, setOpen] = useState(false);
+  const [tokens, setTokens] = useState<{ id: string; created_at: string; last_used_at: string | null }[]>([]);
+  const [fresh, setFresh] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const load = () => api<typeof tokens>("/inbox/tokens").then(setTokens).catch((e) => setError(errorText(e)));
+  useEffect(() => { if (open) load(); }, [open]);
+  const make = async () => {
+    setError(null);
+    try {
+      const r = await api<{ token: string }>("/inbox/tokens", { method: "POST" });
+      setFresh(r.token);
+      load();
+    } catch (e) {
+      setError(errorText(e));
+    }
+  };
+  const revoke = async (id: string) => {
+    if (!window.confirm(t("scanAppRevokeAsk"))) return;
+    await api(`/inbox/tokens/${id}`, { method: "DELETE" }).catch((e) => setError(errorText(e)));
+    load();
+  };
+  const copy = (text: string) => navigator.clipboard?.writeText(text).catch(() => undefined);
+  return (
+    <div className="scan-apps">
+      <button className="chip-btn" style={{ alignSelf: "flex-start" }} onClick={() => setOpen((v) => !v)}>
+        {t("scanAppConnect")} {open ? "▴" : "▾"}
+      </button>
+      {open && (
+        <div className="flex-col" style={{ gap: 8 }}>
+          <span className="muted">{t("scanAppHint")}</span>
+          <div className="field">
+            <label>{t("scanAppAddress")}</label>
+            <div className="row" style={{ gap: 6 }}>
+              <code className="code" style={{ flex: 1 }}>{window.location.origin}</code>
+              <button className="chip-btn" onClick={() => copy(window.location.origin)}>{t("copy")}</button>
+            </div>
+          </div>
+          {fresh ? (
+            <div className="field">
+              <label>{t("scanAppToken")}</label>
+              <div className="row" style={{ gap: 6 }}>
+                <code className="code" style={{ flex: 1 }}>{fresh}</code>
+                <button className="chip-btn" onClick={() => copy(fresh)}>{t("copy")}</button>
+              </div>
+              <span className="muted">{t("scanAppOnce")}</span>
+            </div>
+          ) : (
+            <button className="btn ghost" style={{ alignSelf: "flex-start" }} onClick={make}>{t("scanAppNew")}</button>
+          )}
+          {tokens.length > 0 && (
+            <ul className="list">
+              {tokens.map((k) => (
+                <li key={k.id}>
+                  <span className="muted">{k.created_at.slice(0, 16).replace("T", " ")}
+                    {k.last_used_at ? ` · ${t("lastUsed")} ${k.last_used_at.slice(0, 10)}` : ""}</span>
+                  <button className="chip-btn" onClick={() => revoke(k.id)}>{t("scanAppRevoke")}</button>
+                </li>
+              ))}
+            </ul>
+          )}
+          {error && <div className="error">{error}</div>}
+        </div>
+      )}
+    </div>
+  );
+}
+
+export const KINDS: Kind[] =["INVOICE", "CN", "RETURN_NOTE", "PAYMENT", "BANK"];
 const STATUS_BADGE: Record<string, string> = { NEW: "", EXTRACTED: "amber", CONFIRMED: "green", REJECTED: "red" };
 const FLAG: Record<string, string> = { TRUSTED: "ok", CHECK: "check", MISSING: "missing" };
 // where a confirmed paper's draft opens
@@ -212,6 +282,7 @@ export function Scan() {
         <button className="chip-btn" style={{ alignSelf: "flex-start" }} onClick={() => setShowDone((v) => !v)}>
           {t(showDone ? "scanHideDone" : "scanShowDone")}
         </button>
+        {allowed && <ScanApps />}
         {showDone && (
           <ul className="scan-list">
             {done.map((q) => (
