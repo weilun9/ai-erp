@@ -1,7 +1,7 @@
 import { Fragment, useCallback, useEffect, useState } from "react";
 import type { ReactNode } from "react";
 import { Link, useSearchParams } from "react-router-dom";
-import { api, money } from "../api";
+import { api, apiBlob, money } from "../api";
 import type { Page } from "../api";
 import { useSession } from "../session";
 import { DOC_ROUTE, errorText, isNum, today } from "../docs/shared";
@@ -55,7 +55,10 @@ export function Accounting() {
       <section className="card glass no-print">
         <div className="row">
           <h2 style={{ margin: 0 }}>{t("accounting")}</h2>
-          <button className="chip-btn" onClick={() => window.print()}>{t("printDoc")}</button>
+          <div className="row" style={{ gap: 8 }}>
+            {can("acc.period.close") && <ExportButton />}
+            <button className="chip-btn" onClick={() => window.print()}>{t("printDoc")}</button>
+          </div>
         </div>
         <div className="tabs settings-tabs" style={{ margin: 0 }}>
           {TABS.map((x) => (
@@ -75,6 +78,40 @@ export function Accounting() {
       {tab === "bank" && <BankRec accounts={accounts} />}
       {tab === "yearend" && <YearEnd />}
       {tab === "sst" && <SstReturn />}
+    </div>
+  );
+}
+
+/** Journals, trial balance, P&L, balance sheet and chart for a period, as Excel or CSV. */
+function ExportButton() {
+  const { t } = useSession();
+  const [open, setOpen] = useState(false);
+  const [from, setFrom] = useState(startOfYear());
+  const [to, setTo] = useState(today());
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const get = async (format: "xlsx" | "csv") => {
+    setBusy(true); setError(null);
+    try {
+      const blob = await apiBlob(`/accounting/export?date_from=${from}&date_to=${to}&format=${format}`);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `accounts_${from}_${to}.${format}`;
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(url), 2000);
+    } catch (e) { setError(errorText(e)); } finally { setBusy(false); }
+  };
+  if (!open) return <button className="chip-btn" onClick={() => setOpen(true)}>{t("accExport")}</button>;
+  return (
+    <div className="export-box">
+      <input type="date" className="input sm" value={from} aria-label={t("dateFrom")} onChange={(e) => setFrom(e.target.value)} />
+      <span className="muted">–</span>
+      <input type="date" className="input sm" value={to} aria-label={t("dateTo")} onChange={(e) => setTo(e.target.value)} />
+      <button className="chip-btn" disabled={busy} onClick={() => get("xlsx")}>Excel</button>
+      <button className="chip-btn" disabled={busy} onClick={() => get("csv")}>CSV</button>
+      <button className="chip-btn" aria-label={t("cancel")} onClick={() => setOpen(false)}>✕</button>
+      {error && <span className="error">{error}</span>}
     </div>
   );
 }

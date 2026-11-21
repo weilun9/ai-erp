@@ -6,11 +6,11 @@ from datetime import date, datetime
 from decimal import Decimal
 from typing import Annotated, Any, Literal
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Query, Response
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.api.deps import DB, CurrentUser
-from app.services import bankrec
+from app.services import acc_export, bankrec
 from app.services import ledger as svc
 
 router = APIRouter(prefix="/accounting", tags=["accounting"])
@@ -318,3 +318,29 @@ def close_year(body: CloseIn, p: CurrentUser, db: DB) -> CloseOut:
 @router.post("/year-end/reopen")
 def reopen_year(p: CurrentUser, db: DB) -> CloseOut:
     return CloseOut.model_validate(svc.reopen_year(db, p))
+
+
+# --- export ------------------------------------------------------------------------------------
+
+
+@router.get("/export")
+def export(
+    p: CurrentUser,
+    db: DB,
+    date_from: date,
+    date_to: date,
+    format: Literal["xlsx", "csv"] = "xlsx",
+) -> Response:
+    """Journals (+ trial balance, P&L, balance sheet, chart in the workbook) for the period."""
+    name = f"accounts_{date_from.isoformat()}_{date_to.isoformat()}"
+    if format == "csv":
+        body = acc_export.export_csv(db, p, date_from, date_to)
+        media = "text/csv; charset=utf-8"
+    else:
+        body = acc_export.export_xlsx(db, p, date_from, date_to)
+        media = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    return Response(
+        content=body,
+        media_type=media,
+        headers={"Content-Disposition": f'attachment; filename="{name}.{format}"'},
+    )

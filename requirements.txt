@@ -14,3 +14,4 @@ httpx>=0.28
 pypdfium2>=4.30
 pillow>=11
 pgvector>=0.4
+openpyxl>=3.1

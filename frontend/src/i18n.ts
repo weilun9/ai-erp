@@ -400,6 +400,7 @@ const en = {
   save: "Save",
   accBank: "Bank reconciliation",
   sstTitle: "SST return",
+  accExport: "Export",
   bomTitle: "Bill of materials",
   bomHint: "What goes into this product (a hamper, a gift set, a carton made up of loose pieces). Quantities are in each component's base unit.",
   bomMakes: "Making",
