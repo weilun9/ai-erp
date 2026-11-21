@@ -49,6 +49,7 @@ from app.models import (
 )
 from app.services import audit, stock
 from app.services import knockoff as ko
+from app.services import lots as lotsvc
 from app.services.auth import Principal
 from app.services.doclib import EDITABLE, check_common, line_amounts, q2
 from app.services.doclib import q4 as _q4
@@ -297,6 +298,7 @@ def _build_lines(
                 # cost per base unit, net of discount, excluding tax (SST is not cost here)
                 unit_cost=_q4(subtotal / base_qty) if base_qty else Decimal(0),
                 remark=ln.get("remark"),
+                lots=lotsvc.clean(ln.get("lots")),
                 **extra,
             )
         )
@@ -665,6 +667,14 @@ def post_doc(db: Session, p: Principal, kind: str, doc_id: uuid.UUID, version: i
     if getattr(doc, "completeness", None) == "RECORDED":
         raise BusinessRule("Confirm the returned items before posting this CN")
 
+    if k.key == "grn":
+        kinds = lotsvc.tracked(db, {ln.item_id for ln in doc.lines})
+        missing = [ln.line_no for ln in doc.lines if ln.item_id in kinds and not ln.lots]
+        if missing:
+            raise lotsvc.LotInvalid(
+                "Enter the batch / serial numbers of these lines before posting",
+                {"lines": missing},
+            )
     if k.direction != 0:
         _post_stock(db, p, k, doc)
     doc.status = "POSTED"
@@ -692,6 +702,7 @@ def _post_stock(db: Session, p: Principal, k: Kind, doc) -> None:
                 # receipts add at cost; returns remove exactly the returned value
                 unit_cost=ln.unit_cost,
                 line_id=ln.id,
+                lots=lotsvc.from_line(ln.lots),
             )
             for ln in doc.lines
         ],

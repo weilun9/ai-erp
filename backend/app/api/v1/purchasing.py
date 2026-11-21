@@ -11,6 +11,7 @@ from pydantic import BaseModel, Field
 
 from app.api.deps import DB, CurrentUser
 from app.api.redact import sensitive, shape
+from app.api.v1.lots import LotIn
 from app.services import purchasing as svc
 
 router = APIRouter(prefix="/purchase", tags=["purchasing"])
@@ -32,6 +33,8 @@ class LineIn(BaseModel):
     tax_code_id: uuid.UUID | None = None
     price_incl_tax: bool = False
     remark: str | None = Field(default=None, max_length=200)
+    # batch / serial numbers (base units); out: leave empty for earliest expiry first
+    lots: list[LotIn] | None = None
     # grn only: the purchase order line this delivery fills (price defaults to the PO's)
     po_line_id: uuid.UUID | None = None
 
@@ -103,6 +106,7 @@ class LineOut(BaseModel):
     line_total: Decimal | None = sensitive("cost")
     unit_cost: Decimal | None = sensitive("cost")
     remark: str | None
+    lots: list[dict[str, Any]] | None = None
     po_line_id: uuid.UUID | None = None
     # purchase order, single document only: how much of the line is received already
     received_qty: Decimal | None = None

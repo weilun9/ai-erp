@@ -3,6 +3,7 @@
 - Balances are locked with SELECT ... FOR UPDATE in a fixed order (item, location), so two
   documents posting the same item at the same time serialize instead of losing updates.
 - Cost is moving average per item and location, in base units.
+- Items that track batch / serial numbers get their lots recorded too (lots.py).
 - Runs inside the caller's transaction: the document's status change and its stock
   movements commit together or not at all.
 """
@@ -17,6 +18,7 @@ from sqlalchemy.orm import Session
 
 from app.core.errors import StockInsufficient
 from app.models import StockBalance, StockLedger
+from app.services import lots as lotsvc
 
 Q4 = Decimal("0.0001")
 ZERO = Decimal(0)
@@ -35,6 +37,8 @@ class Move:
     # a value = remove exactly that value (a supplier return at its price, or a void).
     unit_cost: Decimal | None
     line_id: uuid.UUID | None = None
+    # batch / serial numbers (tracked items); None = in: "-" or a transfer's own; out: FEFO
+    lots: tuple[lotsvc.LotQty, ...] | None = None
 
 
 def lock_balances(
@@ -67,6 +71,7 @@ def apply_moves(
     moves: list[Move],
     is_reversal: bool = False,
     allow_negative: bool = True,
+    track_lots: bool = True,
 ) -> list[StockLedger]:
     """Negative stock is allowed (company decision 2026-11-08); pass allow_negative=False
     for flows that must not oversell."""
@@ -131,6 +136,12 @@ def apply_moves(
         db.add(row)
         rows.append(row)
     db.flush()
+    if track_lots:
+        kinds = lotsvc.tracked(db, {m.item_id for m in moves})
+        for m, row in zip(moves, rows, strict=True):
+            if m.item_id in kinds:
+                lotsvc.record(db, company_id, kinds[m.item_id], m, row)
+        db.flush()
     return rows
 
 
@@ -157,7 +168,7 @@ def reverse_doc(
         )
         for r in original
     ]
-    return apply_moves(
+    rows = apply_moves(
         db,
         company_id=company_id,
         doc_type=doc_type,
@@ -165,4 +176,8 @@ def reverse_doc(
         doc_no=doc_no,
         moves=moves,
         is_reversal=True,
+        track_lots=False,  # lots are undone exactly as they were taken, below
     )
+    lotsvc.reverse(db, company_id, [(o.id, r) for o, r in zip(original, rows, strict=True)])
+    db.flush()
+    return rows

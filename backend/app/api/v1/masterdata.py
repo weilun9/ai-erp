@@ -203,6 +203,7 @@ class ItemOut(BaseModel):
     sales_tax_code_id: uuid.UUID | None
     einvoice_classification: str
     track_batch: bool
+    track_serial: bool = False
     is_active: bool
     description_2: str | None = None
     article_no: str | None = None
@@ -264,6 +265,7 @@ class ItemIn(BaseModel):
     sales_tax_code_id: uuid.UUID | None = None
     einvoice_classification: str = Field(default="022", pattern=r"^\d{3}$")
     track_batch: bool = False
+    track_serial: bool = False
     description_2: str | None = Field(default=None, max_length=200)
     article_no: str | None = Field(default=None, max_length=50)
     brand_id: uuid.UUID | None = None
@@ -294,6 +296,7 @@ class ItemPatch(Versioned):
     sales_tax_code_id: uuid.UUID | None = None
     einvoice_classification: str | None = Field(default=None, pattern=r"^\d{3}$")
     track_batch: bool | None = None
+    track_serial: bool | None = None
     is_active: bool | None = None
     description_2: str | None = Field(default=None, max_length=200)
     article_no: str | None = Field(default=None, max_length=50)

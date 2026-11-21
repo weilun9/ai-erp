@@ -8,6 +8,7 @@ on post (an adjustment may give the cost of stock it adds).
 import uuid
 from datetime import date, datetime
 from decimal import Decimal
+from typing import Any
 
 from sqlalchemy import (
     Boolean,
@@ -22,6 +23,7 @@ from sqlalchemy import (
     Uuid,
     text,
 )
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, declared_attr, mapped_column, relationship
 
 from app.db.base import Base
@@ -66,6 +68,9 @@ class StockLine(UUIDPk):
     base_qty: Mapped[Decimal] = mapped_column(Qty)
     unit_cost: Mapped[Decimal] = mapped_column(Money, server_default=text("0"))
     reason: Mapped[str | None] = mapped_column(String(20))
+    # batch / serial numbers of this line (items that track them): [{"lot_no", "expiry_date",
+    # "qty" in base units}]. Leave empty on outgoing lines to take earliest-expiry stock first.
+    lots: Mapped[list[dict[str, Any]] | None] = mapped_column(JSONB)
     remark: Mapped[str | None] = mapped_column(String(200))
 
 

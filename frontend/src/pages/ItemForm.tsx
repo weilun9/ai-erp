@@ -29,7 +29,7 @@ type ItemUom = { uom: string; factor: string; selling_price: string | null; purc
 interface Item {
   id: string; code: string; name: string; short_name: string | null; category_id: string | null;
   base_uom: string; purchase_tax_code_id: string | null; sales_tax_code_id: string | null;
-  einvoice_classification: string; track_batch: boolean; is_active: boolean; version: number;
+  einvoice_classification: string; track_batch: boolean; track_serial?: boolean; is_active: boolean; version: number;
   description_2: string | null; article_no: string | null; sales_note: string | null;
   purchase_note: string | null; min_selling_price: string | null;
   [k: string]: unknown;
@@ -63,7 +63,7 @@ const blankUom = (uom: string, factor: string): UomRow => ({
 });
 const EMPTY = {
   code: "", name: "", short_name: "", category_id: "", base_uom: "", sales_tax_code_id: "",
-  purchase_tax_code_id: "", einvoice_classification: "022", track_batch: false, is_active: true,
+  purchase_tax_code_id: "", einvoice_classification: "022", track_batch: false, track_serial: false, is_active: true,
   description_2: "", article_no: "", sales_note: "", purchase_note: "", min_selling_price: "",
   min_qty: "", max_qty: "", reorder_level: "", reorder_qty: "",
   brand_id: "", group_id: "", color_id: "", size_id: "", udf1_id: "", udf2_id: "", udf3_id: "",
@@ -103,7 +103,7 @@ export function ItemForm() {
       code: it.code, name: it.name, short_name: s("short_name"), category_id: s("category_id"),
       base_uom: it.base_uom, sales_tax_code_id: s("sales_tax_code_id"),
       purchase_tax_code_id: s("purchase_tax_code_id"),
-      einvoice_classification: it.einvoice_classification, track_batch: it.track_batch, is_active: it.is_active,
+      einvoice_classification: it.einvoice_classification, track_batch: it.track_batch, track_serial: !!it.track_serial, is_active: it.is_active,
       description_2: s("description_2"), article_no: s("article_no"), sales_note: s("sales_note"),
       purchase_note: s("purchase_note"), min_selling_price: num(it.min_selling_price),
       min_qty: num(it.min_qty), max_qty: num(it.max_qty), reorder_level: num(it.reorder_level),
@@ -201,6 +201,7 @@ export function ItemForm() {
         category_id: f.category_id || null, base_uom: f.base_uom,
         sales_tax_code_id: f.sales_tax_code_id || null, purchase_tax_code_id: f.purchase_tax_code_id || null,
         einvoice_classification: f.einvoice_classification, track_batch: f.track_batch,
+        track_serial: f.track_serial,
         description_2: orNull(f.description_2), article_no: orNull(f.article_no),
         sales_note: orNull(f.sales_note), purchase_note: orNull(f.purchase_note),
         min_selling_price: orNull(f.min_selling_price),
@@ -345,6 +346,16 @@ export function ItemForm() {
                    maxLength={3} inputMode="numeric" onChange={(e) => set({ einvoice_classification: e.target.value })} />
           </div>
         </div>
+        <label className="row" style={{ justifyContent: "flex-start", gap: 8 }}>
+          <input type="checkbox" checked={f.track_batch} disabled={!editable || !!f.track_serial}
+                 onChange={(e) => set({ track_batch: e.target.checked })} />
+          <span>{t("trackBatch")}</span>
+        </label>
+        <label className="row" style={{ justifyContent: "flex-start", gap: 8 }}>
+          <input type="checkbox" checked={!!f.track_serial} disabled={!editable}
+                 onChange={(e) => set({ track_serial: e.target.checked, ...(e.target.checked ? { track_batch: false } : {}) })} />
+          <span>{t("trackSerial")}</span>
+        </label>
         {!isNew && editable && (
           <label className="row" style={{ justifyContent: "flex-start", gap: 8 }}>
             <input type="checkbox" checked={f.is_active} onChange={(e) => set({ is_active: e.target.checked })} />

@@ -4,6 +4,8 @@ import { api, money, qty as fmtQty } from "../api";
 import type { Page } from "../api";
 import { useSession } from "../session";
 import { Picker } from "../docs/Picker";
+import { LotCell } from "../docs/LotCell";
+import type { Lot } from "../docs/LotCell";
 import { KINDS, NOTE_KINDS, STATUS_COLOR, isKind } from "../docs/kinds";
 import type { Kind, KindDef } from "../docs/kinds";
 import { amt, errorText, isNum, round2, today, warnText } from "../docs/shared";
@@ -23,6 +25,7 @@ interface ItemUom { uom: string; factor: string; selling_price: string | null; p
 interface Item {
   id: string; code: string; name: string; base_uom: string; uoms: ItemUom[];
   sales_tax_code_id: string | null; purchase_tax_code_id: string | null;
+  track_batch?: boolean; track_serial?: boolean;
 }
 interface TaxCode { id: string; code: string; name: string; rate: string; is_active: boolean }
 interface Party extends PrintParty { id: string; code: string; name: string }
@@ -37,6 +40,7 @@ interface LineOut {
   so_line_id?: string | null;
   price_incl_tax?: boolean;
   po_line_id?: string | null;
+  lots?: Lot[] | null;
 }
 interface DocOut {
   id: string; doc_no: string | null; doc_date: string; status: string; version: number;
@@ -60,6 +64,8 @@ interface Row {
   incl?: boolean;        // purchase line: the price includes tax
   serverPrice?: string;  // what the server priced a line left on "auto"
   invoiced?: string;     // delivery order line: quantity already invoiced
+  id?: string;           // saved line id (to show the lots a posted line moved)
+  lots: Lot[];           // batch / serial numbers (tracked items, base units)
 }
 interface Head {
   doc_date: string; party: Party | null; location_id: string; ref_no: string; remark: string;
@@ -86,8 +92,15 @@ function newRow(def: KindDef, item: Item, uom?: string): Row {
     // a GRN needs the supplier's price: start from the last known one
     unit_price: def.priceRequired && cost ? String(Number(cost)) : "",
     discount_pct: "0", tax_code_id: item[def.taxField] ?? "", remark: "", do_line_id: null,
+    lots: [],
   };
 }
+
+// documents that move stock, with the prefix their lot movements are filed under
+const LOT_DOC: Partial<Record<string, string>> = {
+  grn: "GRN", "supplier-cn": "SCN", "delivery-order": "DO", "sales-invoice": "INV", "customer-cn": "CN",
+};
+const INCOMING = new Set(["grn", "customer-cn"]);
 
 export function DocForm() {
   const { kind: kindParam, id } = useParams();
@@ -106,6 +119,13 @@ function Form({ def, id }: { def: KindDef; id: string }) {
   const { t, can } = useSession();
   const nav = useNavigate();
   const [doc, setDoc] = useState<DocOut | null>(null);
+  // posted lines of tracked items: the batches / serials the stock actually moved
+  const [movedLots, setMovedLots] = useState<Record<string, Lot[]>>({});
+  useEffect(() => {
+    const prefix = LOT_DOC[def.kind];
+    if (!doc || !prefix || (doc.status !== "POSTED" && doc.status !== "VOIDED")) { setMovedLots({}); return; }
+    api<Record<string, Lot[]>>(`/lots/doc/${prefix}/${doc.id}`).then(setMovedLots).catch(() => setMovedLots({}));
+  }, [doc, def.kind]);
   const [head, setHead] = useState<Head>(emptyHead);
   const [rows, setRows] = useState<Row[]>([]);
   const [dirty, setDirty] = useState(false);
@@ -174,6 +194,7 @@ function Form({ def, id }: { def: KindDef; id: string }) {
         remark: l.remark ?? "", do_line_id: l.do_line_id ?? null, po_line_id: l.po_line_id ?? null,
         so_line_id: l.so_line_id ?? null,
         invoiced: l.invoiced_qty ?? l.received_qty ?? l.fulfilled_qty, incl: !!l.price_incl_tax,
+        id: l.id, lots: l.lots ?? [],
       };
     }));
     if (!keepWarnings) setWarnings(d.warnings ?? []);
@@ -325,6 +346,7 @@ function Form({ def, id }: { def: KindDef; id: string }) {
       ...(r.po_line_id ? { po_line_id: r.po_line_id } : {}),
       ...(r.so_line_id ? { so_line_id: r.so_line_id } : {}),
       ...(def.area === "purchase" ? { price_incl_tax: !!r.incl } : {}),
+      ...(r.lots.length ? { lots: r.lots } : {}),
     })),
   });
 
@@ -638,6 +660,13 @@ function Form({ def, id }: { def: KindDef; id: string }) {
                         {r.invoiced !== undefined && status === "POSTED"
                           ? ` · ${t(isPO ? "receivedOf" : isSO ? "deliveredOf" : "invoicedOf")} ${fmtQty(r.invoiced)} / ${fmtQty(r.qty)}` : ""}
                       </span>
+                      {LOT_DOC[def.kind] && !r.do_line_id && (r.item.track_batch || r.item.track_serial) && (
+                        <LotCell lots={r.lots} serial={!!r.item.track_serial} baseUom={r.item.base_uom}
+                                 need={Number(r.qty || 0) * Number(r.item.uoms.find((u) => u.uom === r.uom)?.factor ?? 1)}
+                                 editable={editable} incoming={INCOMING.has(def.kind)}
+                                 moved={status !== "DRAFT" && status !== "SAVED" && r.id ? movedLots[r.id] : undefined}
+                                 onChange={(lots) => setRow(r.key, { lots })} />
+                      )}
                     </td>
                     <td>
                       <select className="input sm" value={r.uom} disabled={!editable || !!r.do_line_id}

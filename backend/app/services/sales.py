@@ -49,6 +49,7 @@ from app.models import (
 from app.models.einvoice import ACTIVE as EINVOICE_ACTIVE
 from app.services import audit, stock
 from app.services import knockoff as ko
+from app.services import lots as lotsvc
 from app.services.auth import Principal
 from app.services.doclib import EDITABLE, check_common, line_amounts, q2, q4, set_totals, today
 from app.services.numbering import next_doc_no
@@ -445,6 +446,7 @@ def _build_lines(
                 line_total=subtotal + line_tax,
                 unit_cost=Decimal(0),
                 remark=ln.get("remark"),
+                lots=lotsvc.clean(ln.get("lots")),
                 **extra,
             )
         )
@@ -760,6 +762,7 @@ def _moves(db: Session, k: Kind, doc) -> list[stock.Move]:
                 # back in at the cost it left with; unknown -> current average
                 unit_cost=q4(terms[ln.item_id][1]) if ln.item_id in terms else None,
                 line_id=ln.id,
+                lots=lotsvc.from_line(ln.lots),
             )
             for ln in doc.lines
         ]
@@ -777,6 +780,7 @@ def _moves(db: Session, k: Kind, doc) -> list[stock.Move]:
                 qty=-ln.base_qty,
                 unit_cost=None,  # out at moving average
                 line_id=ln.id,
+                lots=lotsvc.from_line(ln.lots),  # none: earliest expiry first
             )
         )
     return moves

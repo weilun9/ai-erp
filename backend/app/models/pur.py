@@ -8,6 +8,7 @@ DynaMod's purchase entry. Supplier CN returns goods; its completeness status sup
 import uuid
 from datetime import date, datetime
 from decimal import Decimal
+from typing import Any
 
 from sqlalchemy import (
     Boolean,
@@ -22,6 +23,7 @@ from sqlalchemy import (
     Uuid,
     text,
 )
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, declared_attr, mapped_column, relationship
 
 from app.db.base import Base
@@ -92,6 +94,9 @@ class PurchaseLine(UUIDPk):
     line_tax: Mapped[Decimal] = mapped_column(Money)
     line_total: Mapped[Decimal] = mapped_column(Money)
     unit_cost: Mapped[Decimal] = mapped_column(Money)  # per base unit, net of discount, ex tax
+    # batch / serial numbers of this line (items that track them): [{"lot_no", "expiry_date",
+    # "qty" in base units}]. Leave empty on outgoing lines to take earliest-expiry stock first.
+    lots: Mapped[list[dict[str, Any]] | None] = mapped_column(JSONB)
     remark: Mapped[str | None] = mapped_column(String(200))
 
 

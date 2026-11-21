@@ -12,6 +12,16 @@ COUNTRY = "MY"
 COUNTRY_ISO3 = "MYS"
 CURRENCY = "MYR"
 TIMEZONE = "Asia/Kuala_Lumpur"  # business days for POS sales and reports
+
+
+def business_date():
+    """Today in the shop's time zone (a server in UTC is a day behind before 08:00)."""
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+
+    return datetime.now(ZoneInfo(TIMEZONE)).date()
+
+
 UTC_OFFSET_HOURS = 8  # Malaysia has no daylight saving
 
 # MyInvois state codes

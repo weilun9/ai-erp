@@ -10,6 +10,7 @@ from pydantic import BaseModel, Field
 
 from app.api.deps import DB, CurrentUser
 from app.api.redact import sensitive, shape
+from app.api.v1.lots import LotIn
 from app.services import sales as svc
 
 router = APIRouter(prefix="/sales", tags=["sales"])
@@ -35,6 +36,8 @@ class LineIn(BaseModel):
     discount_pct: Decimal = Field(default=Decimal(0), ge=0, le=100, decimal_places=4)
     tax_code_id: uuid.UUID | None = None
     remark: str | None = Field(default=None, max_length=200)
+    # batch / serial numbers (base units); out: leave empty for earliest expiry first
+    lots: list[LotIn] | None = None
     do_line_id: uuid.UUID | None = None  # sales-invoice only: invoicing a delivered DO line
     so_line_id: uuid.UUID | None = None  # DO / invoice: fulfilling a sales order line
 
@@ -105,6 +108,7 @@ class LineOut(BaseModel):
     line_total: Decimal
     unit_cost: Decimal | None = sensitive("cost")
     remark: str | None
+    lots: list[dict[str, Any]] | None = None
     do_line_id: uuid.UUID | None = None
     so_line_id: uuid.UUID | None = None
     # sales order, single document only: delivered or invoiced so far

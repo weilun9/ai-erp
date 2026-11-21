@@ -86,7 +86,12 @@ class Item(UUIDPk, AuditColumns, Base):
     purchase_tax_code_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("md.tax_code.id"))
     sales_tax_code_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("md.tax_code.id"))
     einvoice_classification: Mapped[str] = mapped_column(String(3), server_default=text("'022'"))
-    track_batch: Mapped[bool] = mapped_column(Boolean, server_default=text("false"))
+    track_batch: Mapped[bool] = mapped_column(
+        Boolean, server_default=text("false")
+    )  # batch + expiry
+    track_serial: Mapped[bool] = mapped_column(
+        Boolean, server_default=text("false")
+    )  # one per piece
     is_active: Mapped[bool] = mapped_column(Boolean, server_default=text("true"))
     description_2: Mapped[str | None] = mapped_column(String(200))
     article_no: Mapped[str | None] = mapped_column(String(50))

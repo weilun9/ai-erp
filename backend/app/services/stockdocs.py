@@ -41,6 +41,7 @@ from app.models import (
     StockWriteOffLine,
 )
 from app.services import audit, stock
+from app.services import lots as lotsvc
 from app.services.auth import Principal
 from app.services.doclib import EDITABLE, check_common, q2, q4
 from app.services.numbering import next_doc_no
@@ -213,6 +214,7 @@ def _build_lines(db: Session, p: Principal, k: Kind, lines: list[dict[str, Any]]
                 unit_cost=ZERO,
                 reason=ln.get("reason"),
                 remark=ln.get("remark"),
+                lots=lotsvc.clean(ln.get("lots")),
                 **extra,
             )
         )
@@ -467,6 +469,7 @@ def post_doc(db: Session, p: Principal, kind: str, doc_id: uuid.UUID, version: i
                     qty=ln.base_qty,
                     unit_cost=ln.given_cost if ln.base_qty > 0 else None,
                     line_id=ln.id,
+                    lots=lotsvc.from_line(ln.lots),
                 )
                 for ln in doc.lines
             ],
@@ -484,6 +487,7 @@ def post_doc(db: Session, p: Principal, kind: str, doc_id: uuid.UUID, version: i
                     qty=-ln.base_qty,
                     unit_cost=None,
                     line_id=ln.id,
+                    lots=lotsvc.from_line(ln.lots),
                 )
                 for ln in doc.lines
             ],
@@ -504,6 +508,7 @@ def post_doc(db: Session, p: Principal, kind: str, doc_id: uuid.UUID, version: i
                     qty=-ln.base_qty,
                     unit_cost=None,
                     line_id=ln.id,
+                    lots=lotsvc.from_line(ln.lots),
                 )
                 for ln in doc.lines
             ],

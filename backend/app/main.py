@@ -15,6 +15,7 @@ from app.api.v1 import (
     inbox,
     kb,
     locations,
+    lots,
     masterdata,
     me,
     people,
@@ -105,6 +106,7 @@ def create_app() -> FastAPI:
     v1.include_router(inbox.router)
     v1.include_router(stock.router)
     v1.include_router(stockdocs.router)
+    v1.include_router(lots.router)
     v1.include_router(reports.router)
     v1.include_router(ai.router)
     v1.include_router(kb.router)

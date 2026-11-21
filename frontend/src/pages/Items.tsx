@@ -63,6 +63,10 @@ export function Items() {
           )}
           <Link className="chip-btn" style={{ textDecoration: "none", whiteSpace: "nowrap" }}
                 to="/labels">{t("labelsOpen")}</Link>
+          {can("inv.balance.read") && (
+            <Link className="chip-btn" style={{ textDecoration: "none", whiteSpace: "nowrap" }}
+                  to="/lots">{t("lotsOpen")}</Link>
+          )}
           {can("md.item.manage") && (
             <Link className="btn" style={{ textDecoration: "none", whiteSpace: "nowrap" }}
                   to="/items/edit/new">+ {t("newDoc")}</Link>

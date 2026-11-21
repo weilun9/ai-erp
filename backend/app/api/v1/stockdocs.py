@@ -10,6 +10,7 @@ from pydantic import BaseModel, Field
 
 from app.api.deps import DB, CurrentUser
 from app.api.redact import sensitive, shape
+from app.api.v1.lots import LotIn
 from app.services import stockdocs as svc
 
 router = APIRouter(prefix="/inventory", tags=["inventory"])
@@ -32,6 +33,8 @@ class LineIn(BaseModel):
     unit_cost: Decimal | None = Field(default=None, ge=0, max_digits=18, decimal_places=4)
     reason: str | None = Field(default=None, max_length=20)
     remark: str | None = Field(default=None, max_length=200)
+    # batch / serial numbers (base units); out: leave empty for earliest expiry first
+    lots: list[LotIn] | None = None
 
 
 class DocIn(BaseModel):
@@ -76,6 +79,7 @@ class LineOut(BaseModel):
     unit_cost: Decimal | None = sensitive("cost")
     reason: str | None
     remark: str | None
+    lots: list[dict[str, Any]] | None = None
     system_qty: Decimal | None = None
     diff_qty: Decimal | None = None
 

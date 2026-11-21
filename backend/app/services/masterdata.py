@@ -471,11 +471,17 @@ def update_item(
     item = get_item(db, p, item_id)
     _check_version(item, version)
     before = _item_snapshot(item)
+    was_kind = "SERIAL" if item.track_serial else "BATCH" if item.track_batch else None
     changes = dict(v)
     if "code" in changes:
         _unique_code(db, p, Item, changes["code"], exclude=item.id)
     _validate_item_refs(db, p, changes)
     _assign(item, changes)
+    kind = "SERIAL" if item.track_serial else "BATCH" if item.track_batch else None
+    if kind and kind != was_kind:
+        from app.services import lots
+
+        lots.open_unnumbered(db, p.company_id, item.id, kind)
     if uoms is not None or "base_uom" in changes:
         current = [
             {
