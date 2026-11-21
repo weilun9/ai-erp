@@ -108,7 +108,7 @@ server and the container, and Docker Desktop too if the app started it.
 
 ```powershell
 backend\.venv\Scripts\pip install -e "backend[local-ocr,desktop]"
-.\desktopuild.ps1                        # -> dist\AI Butler ERP\AI Butler ERP.exe
+.\desktop\build.ps1                        # -> dist\AI Butler ERP\AI Butler ERP.exe
 ```
 
 Needs Docker Desktop installed. Settings and data live in `%LOCALAPPDATA%\AIButlerERP`
