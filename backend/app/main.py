@@ -6,6 +6,7 @@ from fastapi.responses import JSONResponse
 from app.api.v1 import (
     accounting,
     ai,
+    assembly,
     audit,
     auth,
     company,
@@ -106,6 +107,7 @@ def create_app() -> FastAPI:
     v1.include_router(finance.issues_router)
     v1.include_router(inbox.router)
     v1.include_router(stock.router)
+    v1.include_router(assembly.router)  # before stockdocs: /inventory/assemblies
     v1.include_router(stockdocs.router)
     v1.include_router(lots.router)
     v1.include_router(reports.router)

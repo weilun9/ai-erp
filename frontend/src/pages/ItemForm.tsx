@@ -5,6 +5,7 @@ import type { Page } from "../api";
 import { useSession } from "../session";
 import type { Key } from "../i18n";
 import { errorText, isNum } from "../docs/shared";
+import { BomEditor } from "./Assembly";
 
 // Create or edit an item - DynaMod's "Stock Maintenance": identity and grouping, tax codes,
 // the units it is bought and sold in (factor to the base unit, prices 1-5 and cost), barcodes,
@@ -363,6 +364,8 @@ export function ItemForm() {
           </label>
         )}
       </section>
+
+      {!isNew && id && <BomEditor itemId={id} baseUom={f.base_uom} editable={editable} />}
 
       <section className="card glass">
         <div className="row">

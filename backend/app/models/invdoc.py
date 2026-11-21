@@ -148,3 +148,74 @@ class StocktakeLine(StockLine, Base):
     system_qty: Mapped[Decimal | None] = mapped_column(Qty)  # base units, on post
     diff_qty: Mapped[Decimal | None] = mapped_column(Qty)  # counted - system, on post
     header: Mapped[Stocktake] = relationship(back_populates="lines")
+
+
+class Bom(UUIDPk, AuditColumns, Base):
+    """Bill of materials: making output_qty base units of item_id takes these components."""
+
+    __tablename__ = "bom"
+    __table_args__ = (UniqueConstraint("item_id"), {"schema": "inv"})
+    company_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("core.company.id"), index=True)
+    item_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("md.item.id"))
+    output_qty: Mapped[Decimal] = mapped_column(Qty, server_default=text("1"))
+    note: Mapped[str | None] = mapped_column(String(300))
+    lines: Mapped[list["BomLine"]] = relationship(
+        back_populates="bom", cascade="all, delete-orphan", order_by="BomLine.line_no"
+    )
+
+
+class BomLine(UUIDPk, Base):
+    __tablename__ = "bom_l"
+    __table_args__ = {"schema": "inv"}
+    bom_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("inv.bom.id", ondelete="CASCADE"), index=True
+    )
+    line_no: Mapped[int] = mapped_column(Integer)
+    item_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("md.item.id"))
+    qty: Mapped[Decimal] = mapped_column(Qty)  # base units per output_qty of the product
+    bom: Mapped[Bom] = relationship(back_populates="lines")
+
+
+class Assembly(UUIDPk, AuditColumns, Base):
+    """Making (ASSEMBLE) or breaking up (DISASSEMBLE) qty of a product at one store: the
+    components go out and the product comes in at their cost, or the other way round.
+    Posted when made; voiding reverses the stock exactly."""
+
+    __tablename__ = "assembly_h"
+    __table_args__ = (
+        UniqueConstraint("company_id", "doc_no"),
+        CheckConstraint("direction IN ('ASSEMBLE', 'DISASSEMBLE')", name="direction"),
+        CheckConstraint("status IN ('POSTED', 'VOIDED')", name="status"),
+        {"schema": "inv"},
+    )
+    company_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("core.company.id"), index=True)
+    doc_no: Mapped[str] = mapped_column(String(30))
+    doc_date: Mapped[date] = mapped_column(Date)
+    location_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("core.location.id"), index=True)
+    item_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("md.item.id"))
+    direction: Mapped[str] = mapped_column(String(12))
+    qty: Mapped[Decimal] = mapped_column(Qty)  # base units of the product
+    unit_cost: Mapped[Decimal] = mapped_column(Money, server_default=text("0"))
+    cost_total: Mapped[Decimal] = mapped_column(Money, server_default=text("0"))
+    status: Mapped[str] = mapped_column(String(10), server_default=text("'POSTED'"))
+    remark: Mapped[str | None] = mapped_column(String(300))
+    posted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    voided_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    voided_by: Mapped[uuid.UUID | None] = mapped_column(Uuid)
+    void_reason: Mapped[str | None] = mapped_column(String(300))
+    lines: Mapped[list["AssemblyLine"]] = relationship(
+        back_populates="header", cascade="all, delete-orphan", order_by="AssemblyLine.line_no"
+    )
+
+
+class AssemblyLine(UUIDPk, Base):
+    __tablename__ = "assembly_l"
+    __table_args__ = {"schema": "inv"}
+    header_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("inv.assembly_h.id", ondelete="CASCADE"), index=True
+    )
+    line_no: Mapped[int] = mapped_column(Integer)
+    item_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("md.item.id"))
+    qty: Mapped[Decimal] = mapped_column(Qty)  # base units used (or got back)
+    unit_cost: Mapped[Decimal] = mapped_column(Money, server_default=text("0"))
+    header: Mapped[Assembly] = relationship(back_populates="lines")

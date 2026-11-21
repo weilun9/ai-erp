@@ -31,6 +31,10 @@ from app.models.fin import (  # noqa: F401
 from app.models.inbox import BankTxn, InboxExtraction, InboxFile  # noqa: F401
 from app.models.inv import Lot, LotBalance, LotMove, StockBalance, StockLedger  # noqa: F401
 from app.models.invdoc import (  # noqa: F401
+    Assembly,
+    AssemblyLine,
+    Bom,
+    BomLine,
     StockAdjustment,
     StockAdjustmentLine,
     Stocktake,

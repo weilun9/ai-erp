@@ -9,6 +9,7 @@ import { Items } from "./pages/Items";
 import { Labels } from "./pages/Labels";
 import { Lots } from "./pages/Lots";
 import { Promotions } from "./pages/Promotions";
+import { AssemblyPage } from "./pages/Assembly";
 import { DocList } from "./pages/DocList";
 import { DocForm } from "./pages/DocForm";
 import { Accounts } from "./pages/Accounts";
@@ -69,6 +70,7 @@ export function App() {
           <Route path="/labels" element={<Labels />} />
           <Route path="/lots" element={<Lots />} />
           <Route path="/promotions" element={<Promotions />} />
+          <Route path="/assembly" element={<AssemblyPage />} />
           <Route path="/settings" element={<Settings />} />
           <Route path="/reorder" element={<Reorder />} />
           <Route path="/accounting" element={<Accounting />} />
