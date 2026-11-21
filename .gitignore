@@ -39,3 +39,4 @@ backend/var/
 
 .vercel
 .env*
+build/

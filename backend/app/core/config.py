@@ -33,6 +33,12 @@ class Settings(BaseSettings):
     demo_accounts: str = "owner:Owner,aminah:Cashier"  # username:label, comma separated
     ai_daily_limit: int = 0  # user questions per company per 24 h; 0 = no limit
 
+    # Desktop app (desktop/launcher.py): the server listens on 127.0.0.1 only, so the one
+    # computer it runs on is approved on first login; the built web app is served from
+    # frontend_dir by the same server.
+    desktop_mode: bool = False
+    frontend_dir: str = ""
+
     jwt_secret: str = DEV_JWT_SECRET
     jwt_algorithm: str = "HS256"
     access_token_minutes: int = 15

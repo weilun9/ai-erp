@@ -103,6 +103,9 @@ def login(
     )
     if not device.is_authorized and get_settings().demo_mode:
         device.is_authorized = True  # public demo: visitors cannot ask an owner to approve them
+    local = request.client is not None and request.client.host in ("127.0.0.1", "::1")
+    if not device.is_authorized and get_settings().desktop_mode and local:
+        device.is_authorized = True  # desktop app: only this computer can reach the server
     if not device.is_authorized:
         db.commit()  # keep the pending device so the owner can find and approve it
         err = DeviceNotAuthorized(

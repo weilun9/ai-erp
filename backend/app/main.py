@@ -1,3 +1,5 @@
+from pathlib import Path
+
 from fastapi import APIRouter, FastAPI, Request
 from fastapi.responses import JSONResponse
 
@@ -106,7 +108,29 @@ def create_app() -> FastAPI:
     v1.include_router(kb.router)
     v1.include_router(pos.router)
     app.include_router(v1)
+    if settings.frontend_dir:
+        _serve_frontend(app, Path(settings.frontend_dir))
     return app
+
+
+def _serve_frontend(app: FastAPI, root: Path) -> None:
+    """Desktop app: the built React app from the same server. Files are served as they are;
+    any other path that is not the API gets index.html (the app routes it)."""
+    from fastapi.responses import FileResponse
+
+    root = root.resolve()
+
+    @app.get("/{path:path}", include_in_schema=False)
+    def frontend(path: str):
+        if path.startswith("api/"):
+            return JSONResponse(
+                status_code=404,
+                content={"error": {"code": "NOT_FOUND", "message": "Not found", "details": {}}},
+            )
+        target = (root / path).resolve()
+        if path and target.is_file() and target.is_relative_to(root):
+            return FileResponse(target)
+        return FileResponse(root / "index.html", headers={"Cache-Control": "no-cache"})
 
 
 app = create_app()

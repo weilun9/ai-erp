@@ -97,6 +97,25 @@ the butler on.
 cd backend && pytest -q                   # needs the database container
 ```
 
+## Windows desktop app
+
+One exe runs the whole ERP on one computer. It starts Docker Desktop if needed, runs its own
+PostgreSQL + pgvector container (`aibutler-erp-db` on 127.0.0.1:5434, data in the Docker
+volume `aibutler-erp-data`), applies the migrations, and shows the ERP in a desktop window
+served from 127.0.0.1 only, so this computer logs in without the approval step. On the first
+run it asks to start with the sample shop or an empty company. Closing the window stops the
+server and the container, and Docker Desktop too if the app started it.
+
+```powershell
+backend\.venv\Scripts\pip install -e "backend[local-ocr,desktop]"
+.\desktopuild.ps1                        # -> dist\AI Butler ERP\AI Butler ERP.exe
+```
+
+Needs Docker Desktop installed. Settings and data live in `%LOCALAPPDATA%\AIButlerERP`
+(`config.env` holds the generated secrets; put `LLM_*` / `VISION_*` keys there or in a `.env`
+next to the exe). Scanning apps such as Doc2Excel can push papers into the scan queue with a
+token made on the Scan screen (*Connect Doc2Excel*).
+
 ## Honest limits
 
 - **LHDN:** the e-invoice flow is tested against a stand-in for MyInvois, and the public demo
@@ -123,4 +142,5 @@ frontend/src/pages      screens
 frontend/src/docs       shared pieces of the document screens (picker, print sheet, e-invoice panel)
 frontend/src/pos        till: offline catalog, outbox, receipt
 api/index.py            Vercel entry point
+desktop                 Windows desktop app (launcher + build script)
 ```
