@@ -7,17 +7,18 @@ import { useSession } from "../session";
 import { DOC_ROUTE, errorText, isNum, today } from "../docs/shared";
 import type { Key } from "../i18n";
 import { BankRec, YearEnd } from "./AccountingBank";
+import { SstReturn } from "./SstReturn";
 
 // The books (DynaMod's accounting module): every posted document is booked to the general
 // ledger by the server; here are the statements, the ledger of one account, the journals
 // (with manual journal vouchers) and the chart of accounts.
 
-type Tab = "tb" | "pl" | "bs" | "ledger" | "journals" | "accounts" | "bank" | "yearend";
+type Tab = "tb" | "pl" | "bs" | "ledger" | "journals" | "accounts" | "bank" | "yearend" | "sst";
 const TABS: { id: Tab; label: Key }[] = [
   { id: "pl", label: "accPL" }, { id: "bs", label: "accBS" }, { id: "tb", label: "accTB" },
   { id: "ledger", label: "accLedger" }, { id: "journals", label: "accJournals" },
   { id: "accounts", label: "accChart" }, { id: "bank", label: "accBank" },
-  { id: "yearend", label: "accYearEnd" },
+  { id: "yearend", label: "accYearEnd" }, { id: "sst", label: "sstTitle" },
 ];
 const TYPES = ["ASSET", "LIABILITY", "EQUITY", "INCOME", "EXPENSE"] as const;
 // where a journal's source document opens
@@ -73,6 +74,7 @@ export function Accounting() {
       {tab === "accounts" && <Chart accounts={accounts} reload={loadAccounts} onAccount={openLedger} />}
       {tab === "bank" && <BankRec accounts={accounts} />}
       {tab === "yearend" && <YearEnd />}
+      {tab === "sst" && <SstReturn />}
     </div>
   );
 }

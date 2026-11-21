@@ -8,7 +8,7 @@ from typing import Annotated, Any
 from fastapi import APIRouter, Query
 
 from app.api.deps import DB, CurrentUser
-from app.services import reports
+from app.services import reports, sst
 from app.services.reports import GroupBy
 
 router = APIRouter(prefix="/reports", tags=["reports"])
@@ -70,3 +70,10 @@ def bi_dashboard(
     return reports.bi_dashboard(
         db, p, date_from=date_from, date_to=date_to, location_id=location_id, top=top
     )
+
+
+@router.get("/sst-return")
+def sst_return(p: CurrentUser, db: DB, date_from: date, date_to: date) -> dict[str, Any]:
+    """SST-02 working paper: taxable value and tax per tax code for the period, sales less
+    credit notes and refunds, and the sales / service tax payable."""
+    return sst.sst_return(db, p, date_from, date_to)
