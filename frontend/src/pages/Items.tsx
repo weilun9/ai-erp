@@ -61,6 +61,8 @@ export function Items() {
             <Link className="chip-btn" style={{ textDecoration: "none", whiteSpace: "nowrap" }}
                   to="/reorder">{t("reorderReport")}</Link>
           )}
+          <Link className="chip-btn" style={{ textDecoration: "none", whiteSpace: "nowrap" }}
+                to="/labels">{t("labelsOpen")}</Link>
           {can("md.item.manage") && (
             <Link className="btn" style={{ textDecoration: "none", whiteSpace: "nowrap" }}
                   to="/items/edit/new">+ {t("newDoc")}</Link>
@@ -93,6 +95,7 @@ export function Items() {
             {can("md.item.manage") && (
               <Link className="chip-btn" to={`/items/edit/${picked.id}`}>{t("editItem")}</Link>
             )}
+            <Link className="chip-btn" to={`/labels?items=${picked.id}`}>{t("labelsOpen")}</Link>
           </div>
           <span className="muted">{picked.code} · {picked.barcodes.map((b) => b.barcode).join(", ")}</span>
           <h3>{t("units")}</h3>

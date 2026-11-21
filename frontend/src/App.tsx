@@ -6,6 +6,7 @@ import { Login } from "./pages/Login";
 import { Home } from "./pages/Home";
 import { Butler } from "./pages/Butler";
 import { Items } from "./pages/Items";
+import { Labels } from "./pages/Labels";
 import { DocList } from "./pages/DocList";
 import { DocForm } from "./pages/DocForm";
 import { Accounts } from "./pages/Accounts";
@@ -63,6 +64,7 @@ export function App() {
           <Route path="/parties/:type" element={<PartyList />} />
           <Route path="/parties/:type/:id" element={<PartyForm />} />
           <Route path="/items/edit/:id" element={<ItemForm />} />
+          <Route path="/labels" element={<Labels />} />
           <Route path="/settings" element={<Settings />} />
           <Route path="/reorder" element={<Reorder />} />
           <Route path="/accounting" element={<Accounting />} />
