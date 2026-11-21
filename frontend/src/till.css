@@ -4,7 +4,7 @@
 .basket { display: flex; flex-direction: column; overflow: hidden; }
 .scan {
   margin: 14px 16px; display: flex; align-items: center; gap: 10px; padding: 14px 18px;
-  border-radius: 18px; background: var(--fill); border: 2px solid rgba(255, 255, 255, 0.10);
+  border-radius: 18px; background: var(--fill); border: 2px solid rgb(var(--ink-rgb) / 0.10);
 }
 .scan:focus-within { border-color: rgba(52, 211, 153, 0.7); }
 .scan input { border: 0; outline: none; background: transparent; width: 100%; font-size: 18px; }
@@ -33,7 +33,7 @@
 .qty { display: flex; align-items: center; gap: 8px; }
 .qty button, .line-tools button {
   width: 32px; height: 32px; border-radius: 10px; border: 0; cursor: pointer;
-  background: rgba(255, 255, 255, 0.08); color: var(--ink); font-size: 16px;
+  background: rgb(var(--ink-rgb) / 0.08); color: var(--ink); font-size: 16px;
 }
 .qty span { min-width: 28px; text-align: center; font-weight: 600; }
 .line-tools { display: flex; gap: 4px; }
@@ -43,7 +43,7 @@
 }
 .grand {
   font-size: 26px; font-weight: 700; padding: 8px 0;
-  border-top: 1px dashed rgba(255, 255, 255, 0.15);
+  border-top: 1px dashed rgb(var(--ink-rgb) / 0.15);
 }
 .methods { margin: 0; }
 .methods button { flex: 1; }
@@ -55,7 +55,7 @@
 }
 .pay-btn { padding: 16px; font-size: 18px; }
 .checks {
-  background: var(--amber-soft); color: #FDE68A; padding: 8px 12px;
+  background: var(--amber-soft); color: var(--amber-ink); padding: 8px 12px;
   border-radius: 12px; font-size: 13px;
 }
 
@@ -90,7 +90,7 @@
 
 .line-edit {
   grid-column: 1 / -1; display: flex; gap: 10px; align-items: flex-end; flex-wrap: wrap;
-  padding-top: 8px; border-top: 1px dashed rgba(255, 255, 255, 0.12);
+  padding-top: 8px; border-top: 1px dashed rgb(var(--ink-rgb) / 0.12);
 }
 .line-edit label { display: flex; flex-direction: column; gap: 4px; font-size: 12px;
   color: var(--ink-soft); }

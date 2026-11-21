@@ -324,24 +324,29 @@ def serve(port: int) -> threading.Thread:
 # --- window -----------------------------------------------------------------------------------
 
 SPLASH = """<!doctype html><html><head><meta charset="utf-8"><style>
-body{margin:0;height:100vh;display:grid;place-items:center;background:#0A0A0B;color:#fff;
+body{margin:0;height:100vh;display:grid;place-items:center;color:#1D1D1F;
+background:radial-gradient(60% 60% at 10% 10%,#BFE0FF,transparent),
+radial-gradient(50% 50% at 90% 70%,#E2D6FF,transparent),
+radial-gradient(50% 50% at 40% 100%,#FFD9E6,transparent),#EEF0F5;
 font-family:Inter,Segoe UI,system-ui,sans-serif}
-.box{width:min(460px,90vw);display:flex;flex-direction:column;gap:14px}
+.box{width:min(460px,90vw);display:flex;flex-direction:column;gap:14px;padding:32px;
+border-radius:28px;background:rgba(255,255,255,.62);border:1px solid rgba(255,255,255,.8);
+backdrop-filter:blur(28px) saturate(180%);box-shadow:0 12px 32px -12px rgba(16,24,40,.18)}
 h1{margin:0;font-weight:600;font-size:26px;letter-spacing:-.02em}
-#msg{color:#A3AAB6;font-size:14px;min-height:20px}
-.bar{height:4px;border-radius:4px;background:rgba(255,255,255,.08);overflow:hidden}
-.bar i{display:block;height:100%;width:35%;background:linear-gradient(90deg,#34D399,#22D3EE);
+#msg{color:#5B5F69;font-size:14px;min-height:20px}
+.bar{height:4px;border-radius:4px;background:rgba(29,29,31,.08);overflow:hidden}
+.bar i{display:block;height:100%;width:35%;background:#0A84FF;
 animation:run 1.2s ease-in-out infinite}
 @keyframes run{from{transform:translateX(-100%)}to{transform:translateX(300%)}}
-.err{color:#FDA4AF;font-size:14px;white-space:pre-wrap}
+.err{color:#D70015;font-size:14px;white-space:pre-wrap}
 .choice{display:none;flex-direction:column;gap:10px}
 button{height:44px;border-radius:999px;border:0;font:inherit;font-size:14px;cursor:pointer}
-.pri{background:#fff;color:#0A0A0B;font-weight:500}.sec{background:transparent;color:#fff;
-box-shadow:inset 0 0 0 1px rgba(255,255,255,.18)}
-input{height:40px;border-radius:14px;border:1px solid rgba(255,255,255,.12);
-background:rgba(255,255,255,.05);color:#fff;padding:0 14px;font:inherit}
-label{font-size:12px;color:#9AA1AE;display:flex;flex-direction:column;gap:4px}
-.muted{color:#9AA1AE;font-size:13px}
+.pri{background:#0A84FF;color:#fff;font-weight:500}.sec{background:rgba(255,255,255,.7);color:#1D1D1F;
+box-shadow:inset 0 0 0 1px rgba(29,29,31,.12)}
+input{height:40px;border-radius:14px;border:1px solid rgba(29,29,31,.1);
+background:rgba(255,255,255,.75);color:#1D1D1F;padding:0 14px;font:inherit}
+label{font-size:12px;color:#5B5F69;display:flex;flex-direction:column;gap:4px}
+.muted{color:#5B5F69;font-size:13px}
 </style></head><body><div class="box">
 <h1>AI Butler ERP</h1>
 <div id="msg">Starting…</div><div class="bar" id="bar"><i></i></div>
@@ -351,7 +356,7 @@ label{font-size:12px;color:#9AA1AE;display:flex;flex-direction:column;gap:4px}
  <button class="pri" onclick="pywebview.api.sample()">Start with the sample shop</button>
  <span class="muted">A Malaysian grocery shop with items, documents and a till. Log in as
  <b>owner</b> / <b>demo-password-2026</b> and change it in Settings.</span>
- <hr style="border:0;border-top:1px solid rgba(255,255,255,.08);width:100%">
+ <hr style="border:0;border-top:1px solid rgba(29,29,31,.08);width:100%">
  <label>Company name<input id="co" value="My Shop Sdn Bhd"></label>
  <label>Owner user name<input id="un" value="owner"></label>
  <label>Owner password (10+ characters)<input id="pw" type="password"></label>

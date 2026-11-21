@@ -6,13 +6,15 @@ import type { Page } from "../api";
 import { useSession } from "../session";
 import { errorText } from "../docs/shared";
 import type { Key } from "../i18n";
+import { ACCENTS, ACCENT_COLOURS, readLook, saveLook } from "../theme";
+import type { Look, ThemeMode } from "../theme";
 
 // Settings: the reference lists the documents use (tax codes, units, item categories) and
 // the administration of who may log in (users, their tags, the approved computers), plus
 // the company profile that goes on printed documents and e-invoices.
 // On the public demo the server refuses changes to people, devices and the company.
 
-type Tab = "tax" | "units" | "categories" | "groups" | "users" | "tags" | "devices" | "company";
+type Tab = "tax" | "units" | "categories" | "groups" | "users" | "tags" | "devices" | "company" | "look";
 const TABS: { id: Tab; label: Key; perm: string }[] = [
   { id: "tax", label: "setTax", perm: "md.setup.read" },
   { id: "units", label: "setUnits", perm: "md.setup.read" },
@@ -22,6 +24,7 @@ const TABS: { id: Tab; label: Key; perm: string }[] = [
   { id: "tags", label: "setTags", perm: "core.tag.read" },
   { id: "devices", label: "setDevices", perm: "core.device.manage" },
   { id: "company", label: "setCompany", perm: "core.company.read" },
+  { id: "look", label: "setLook", perm: "" }, // this device only: anyone may change it
 ];
 
 /** Loads a list, and runs changes with one shared busy / error state. */
@@ -55,7 +58,7 @@ const paged = <T,>(x: unknown) => (x as Page<T>).items;
 export function Settings() {
   const { t, can } = useSession();
   const [params, setParams] = useSearchParams();
-  const allowed = TABS.filter((x) => can(x.perm));
+  const allowed = TABS.filter((x) => !x.perm || can(x.perm));
   const tab = allowed.find((x) => x.id === params.get("tab"))?.id ?? allowed[0]?.id;
   if (!tab) return <section className="card glass"><div className="error">{t("noAccess")}</div></section>;
   return (
@@ -77,7 +80,50 @@ export function Settings() {
       {tab === "tags" && <Tags />}
       {tab === "devices" && <Devices />}
       {tab === "company" && <Company />}
+      {tab === "look" && <Appearance />}
     </div>
+  );
+}
+
+// --- appearance (this device) ------------------------------------------------------------
+
+const MODES: { id: ThemeMode; label: Key }[] = [
+  { id: "light", label: "lookLight" },
+  { id: "dark", label: "lookDark" },
+  { id: "system", label: "lookSystem" },
+];
+
+function Appearance() {
+  const { t } = useSession();
+  const [look, setLook] = useState<Look>(readLook);
+  const pick = (next: Look) => {
+    setLook(next);
+    saveLook(next);
+  };
+  return (
+    <section className="card glass">
+      <span className="muted">{t("setLookHint")}</span>
+      <h3 style={{ margin: "4px 0 0" }}>{t("lookTheme")}</h3>
+      <div className="theme-choices" role="radiogroup" aria-label={t("lookTheme")}>
+        {MODES.map((m) => (
+          <button key={m.id} role="radio" aria-checked={look.mode === m.id}
+                  className={`theme-choice${look.mode === m.id ? " on" : ""}`}
+                  onClick={() => pick({ ...look, mode: m.id })}>
+            <span className={`preview ${m.id}`}><i /></span>
+            {t(m.label)}
+          </button>
+        ))}
+      </div>
+      <h3 style={{ margin: "8px 0 0" }}>{t("lookAccent")}</h3>
+      <div className="accents" role="radiogroup" aria-label={t("lookAccent")}>
+        {ACCENTS.map((a) => (
+          <button key={a} role="radio" aria-checked={look.accent === a} title={a}
+                  aria-label={a} className={`accent-dot${look.accent === a ? " on" : ""}`}
+                  style={{ ["--dot" as string]: ACCENT_COLOURS[a] }}
+                  onClick={() => pick({ ...look, accent: a })} />
+        ))}
+      </div>
+    </section>
   );
 }
 
