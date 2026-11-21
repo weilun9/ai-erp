@@ -20,6 +20,7 @@ from app.api.v1 import (
     me,
     people,
     pos,
+    promotions,
     purchasing,
     reports,
     sales,
@@ -111,6 +112,7 @@ def create_app() -> FastAPI:
     v1.include_router(ai.router)
     v1.include_router(kb.router)
     v1.include_router(pos.router)
+    v1.include_router(promotions.router)
     app.include_router(v1)
     if settings.frontend_dir:
         _serve_frontend(app, Path(settings.frontend_dir))

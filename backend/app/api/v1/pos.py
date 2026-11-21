@@ -16,7 +16,7 @@ from app.services import pos as svc
 from app.services import pos_consolidation as cons
 
 router = APIRouter(prefix="/pos", tags=["pos"])
-Method = Literal["CASH", "CARD", "EWALLET", "VOUCHER"]
+Method = Literal["CASH", "CARD", "EWALLET", "VOUCHER", "POINTS"]
 
 
 class ShiftOpenIn(BaseModel):
@@ -73,6 +73,9 @@ class SaleIn(BaseModel):
     customer_id: uuid.UUID | None = None
     sold_at: datetime | None = None  # offline sales: when it happened
     supervisor: Supervisor | None = None
+    member_card: str | None = Field(default=None, max_length=30)  # card or phone number
+    # False for sales rung up offline: the customer paid the prices the till showed then
+    apply_promotions: bool = True
 
 
 class ReturnLineIn(BaseModel):
@@ -106,6 +109,8 @@ class LineOut(BaseModel):
     line_tax: Decimal
     line_total: Decimal
     unit_cost: Decimal | None = sensitive("cost")
+    promo_id: uuid.UUID | None = None
+    promo_amount: Decimal = Decimal(0)
 
 
 class PaymentOut(BaseModel):
@@ -122,6 +127,9 @@ class SaleOut(BaseModel):
     shift_id: uuid.UUID
     location_id: uuid.UUID
     customer_id: uuid.UUID | None
+    member_id: uuid.UUID | None = None
+    points_earned: int = 0
+    points_used: int = 0
     ref_sale_id: uuid.UUID | None
     sold_at: datetime
     subtotal: Decimal
@@ -204,12 +212,13 @@ def catalog(p: CurrentUser, db: DB) -> dict[str, Any]:
 
 class QuoteIn(BaseModel):
     lines: list[SaleLineIn] = Field(min_length=1, max_length=300)
+    member_card: str | None = Field(default=None, max_length=30)
 
 
 @router.post("/quote")
 def quote(body: QuoteIn, p: CurrentUser, db: DB) -> dict[str, Any]:
     """Price the basket as the sale will (tax, 5-sen cash total); nothing is saved."""
-    return svc.quote(db, p, _plain(body)["lines"])
+    return svc.quote(db, p, _plain(body)["lines"], body.member_card)
 
 
 @router.post("/sales", status_code=201, **EXCLUDE_UNSET)

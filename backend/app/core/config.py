@@ -64,6 +64,9 @@ class Settings(BaseSettings):
     # POS (company rules in the knowledge base: refunds above RM50 need a supervisor;
     # a shift cash difference above RM5 must be explained)
     pos_refund_approval_limit: float = 50
+    # loyalty: points earned per RM paid, and what one point is worth when spent (RM)
+    loyalty_earn_per_rm: float = 1
+    loyalty_point_value: float = 0.01
     pos_variance_note_limit: float = 5
 
     kb_search_mode: str = "auto"  # auto | vector | keyword | hybrid

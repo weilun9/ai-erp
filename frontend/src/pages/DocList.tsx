@@ -58,6 +58,9 @@ export function DocList({ area }: { area: Area }) {
           {area === "sales" && can("md.customer.read") && (
             <Link className="tab-link" to="/parties/customer">{t("customers")}</Link>
           )}
+          {area === "sales" && can("pos.sale.create") && (
+            <Link className="tab-link" to="/promotions">{t("promosAndMembers")}</Link>
+          )}
           {area === "purchase" && can("md.supplier.read") && (
             <Link className="tab-link" to="/parties/supplier">{t("suppliers")}</Link>
           )}

@@ -243,6 +243,19 @@ def migrate() -> None:
     cfg = Config()
     cfg.set_main_option("script_location", str(ALEMBIC))
     command.upgrade(cfg, "head")
+    # a newer version may add permissions: give them to the built-in tags (Owner...)
+    from sqlalchemy import select
+
+    from app.db.session import SessionLocal
+    from app.models import Company
+    from app.services.seed import sync_localization, sync_permissions, sync_system_tags
+
+    with SessionLocal() as db:
+        sync_permissions(db)
+        for company in db.scalars(select(Company)):
+            sync_system_tags(db, company)
+            sync_localization(db, company)
+        db.commit()
 
 
 def has_company() -> bool:

@@ -8,6 +8,9 @@ sal.pos_sale     a receipt (SALE) or a refund against one (RETURN). Completed at
                  records the same sale twice.
 sal.pos_line     items on the receipt, priced from the list (overrides need a supervisor)
 sal.pos_payment  how it was paid; a return has negative amounts
+sal.promotion    price promotions the till applies by itself (% / RM off, special price,
+                 buy X get Y free, N for RM P), by date, store and item / category / brand
+sal.member       loyalty members (card number); sal.points_move is their points ledger
 """
 
 import uuid
@@ -15,10 +18,13 @@ from datetime import date, datetime
 from decimal import Decimal
 
 from sqlalchemy import (
+    BigInteger,
+    Boolean,
     CheckConstraint,
     Date,
     DateTime,
     ForeignKey,
+    Identity,
     Index,
     Integer,
     Numeric,
@@ -28,6 +34,7 @@ from sqlalchemy import (
     func,
     text,
 )
+from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
@@ -37,7 +44,8 @@ Money = Numeric(18, 4)
 Qty = Numeric(18, 4)
 SHIFT_STATUSES = ("OPEN", "CLOSED")
 SALE_KINDS = ("SALE", "RETURN")
-METHODS = ("CASH", "CARD", "EWALLET", "VOUCHER")
+METHODS = ("CASH", "CARD", "EWALLET", "VOUCHER", "POINTS")
+PROMO_KINDS = ("PERCENT", "AMOUNT", "PRICE", "BUY_GET", "BUNDLE")
 
 
 class PosShift(UUIDPk, Base):
@@ -129,6 +137,9 @@ class PosSale(UUIDPk, Base):
     cost_total: Mapped[Decimal] = mapped_column(Money, server_default=text("0"))
     approved_by: Mapped[uuid.UUID | None] = mapped_column(Uuid)  # supervisor override
     reason: Mapped[str | None] = mapped_column(String(200))  # RETURN
+    member_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("sal.member.id"), index=True)
+    points_earned: Mapped[int] = mapped_column(Integer, server_default=text("0"))  # - on return
+    points_used: Mapped[int] = mapped_column(Integer, server_default=text("0"))  # - = given back
     consolidation_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("sal.pos_consolidation.id"), index=True
     )  # the monthly consolidated e-invoice it was reported in
@@ -165,6 +176,9 @@ class PosLine(UUIDPk, Base):
     line_total: Mapped[Decimal] = mapped_column(Money)
     unit_cost: Mapped[Decimal] = mapped_column(Money, server_default=text("0"))  # per base
     ref_line_id: Mapped[uuid.UUID | None] = mapped_column(Uuid)  # RETURN: the line refunded
+    # promotion applied by the till: RM taken off this line before tax (line_subtotal is net)
+    promo_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("sal.promotion.id"))
+    promo_amount: Mapped[Decimal] = mapped_column(Money, server_default=text("0"))
     sale: Mapped[PosSale] = relationship(back_populates="lines")
 
 
@@ -178,3 +192,68 @@ class PosPayment(UUIDPk, Base):
     amount: Mapped[Decimal] = mapped_column(Money)  # net of change; negative = refund
     reference: Mapped[str | None] = mapped_column(String(60))  # card approval code etc.
     sale: Mapped[PosSale] = relationship(back_populates="payments")
+
+
+class Promotion(UUIDPk, Base):
+    """value: PERCENT % off; AMOUNT RM off per base unit; PRICE special price per base unit;
+    BUNDLE price for buy_qty units. BUY_GET: buy buy_qty, get get_qty of them free (the
+    cheapest). Targets: items, categories, brands (all empty = every item); stores (empty =
+    all). One promotion per line - the one that saves the customer most."""
+
+    __tablename__ = "promotion"
+    __table_args__ = (
+        CheckConstraint(f"kind IN {PROMO_KINDS}", name="kind"),
+        UniqueConstraint("company_id", "code"),
+        {"schema": "sal"},
+    )
+    company_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("core.company.id"), index=True)
+    code: Mapped[str] = mapped_column(String(30))
+    name: Mapped[str] = mapped_column(String(100))  # shown on the receipt
+    kind: Mapped[str] = mapped_column(String(10))
+    value: Mapped[Decimal] = mapped_column(Money, server_default=text("0"))
+    buy_qty: Mapped[int] = mapped_column(Integer, server_default=text("0"))
+    get_qty: Mapped[int] = mapped_column(Integer, server_default=text("0"))
+    date_from: Mapped[date] = mapped_column(Date)
+    date_to: Mapped[date] = mapped_column(Date)
+    members_only: Mapped[bool] = mapped_column(Boolean, server_default=text("false"))
+    is_active: Mapped[bool] = mapped_column(Boolean, server_default=text("true"))
+    item_ids: Mapped[list[uuid.UUID]] = mapped_column(ARRAY(Uuid), server_default=text("'{}'"))
+    category_ids: Mapped[list[uuid.UUID]] = mapped_column(ARRAY(Uuid), server_default=text("'{}'"))
+    brand_ids: Mapped[list[uuid.UUID]] = mapped_column(ARRAY(Uuid), server_default=text("'{}'"))
+    location_ids: Mapped[list[uuid.UUID]] = mapped_column(ARRAY(Uuid), server_default=text("'{}'"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    created_by: Mapped[uuid.UUID | None] = mapped_column(Uuid)
+    version: Mapped[int] = mapped_column(Integer, server_default=text("1"))
+
+
+class Member(UUIDPk, Base):
+    """A loyalty member: earns points on till sales and spends them as a payment."""
+
+    __tablename__ = "member"
+    __table_args__ = (UniqueConstraint("company_id", "card_no"), {"schema": "sal"})
+    company_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("core.company.id"), index=True)
+    card_no: Mapped[str] = mapped_column(String(30))
+    name: Mapped[str] = mapped_column(String(100))
+    phone: Mapped[str | None] = mapped_column(String(30), index=True)
+    email: Mapped[str | None] = mapped_column(String(100))
+    points: Mapped[int] = mapped_column(Integer, server_default=text("0"))  # kept by moves
+    is_active: Mapped[bool] = mapped_column(Boolean, server_default=text("true"))
+    joined_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    version: Mapped[int] = mapped_column(Integer, server_default=text("1"))
+
+
+class PointsMove(Base):
+    """Every change to a member's points: EARN / REDEEM on a sale, back on a return, ADJUST."""
+
+    __tablename__ = "points_move"
+    __table_args__ = {"schema": "sal"}
+    id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
+    company_id: Mapped[uuid.UUID] = mapped_column(Uuid, index=True)
+    member_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("sal.member.id"), index=True)
+    sale_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("sal.pos_sale.id"))
+    kind: Mapped[str] = mapped_column(String(10))
+    points: Mapped[int] = mapped_column(Integer)
+    balance: Mapped[int] = mapped_column(Integer)  # after this move
+    note: Mapped[str | None] = mapped_column(String(200))
+    created_by: Mapped[uuid.UUID | None] = mapped_column(Uuid)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

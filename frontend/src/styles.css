@@ -761,3 +761,16 @@ td.neg { color: var(--red); }
 .paste-box textarea { font-family: ui-monospace, Consolas, monospace; font-size: 13px; resize: vertical; }
 .ok-text { color: var(--green); font-size: 14px; }
 .table tr.picked td { background: color-mix(in srgb, var(--accent) 10%, transparent); }
+
+/* --- promotions & members ------------------------------------------------------------------- */
+.promo-form { display: flex; flex-direction: column; gap: 12px; padding-bottom: 12px; border-bottom: 1px solid var(--line); }
+.chip-pick { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip-pick button { border: 0; cursor: pointer; padding: 5px 12px; border-radius: 999px; font: inherit; font-size: 13px;
+  background: var(--fill); color: var(--ink-soft); transition: transform 160ms var(--ease-out); }
+.chip-pick button:active { transform: scale(0.97); }
+.chip-pick button.on { background: color-mix(in srgb, var(--accent) 16%, transparent); color: var(--accent); }
+.promo-tag { display: inline-block; margin-top: 3px; font-size: 12px; font-weight: 600; color: var(--green); }
+.promo-row { color: var(--green); }
+.member-box { display: flex; gap: 8px; padding: 10px 16px 0; }
+.member-line { padding: 8px 16px 0; font-size: 14px; font-weight: 600; color: var(--accent); }
+.btn.member-on { box-shadow: inset 0 0 0 1px var(--accent); color: var(--accent); }

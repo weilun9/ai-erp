@@ -25,11 +25,14 @@ interface Line {
 interface QuoteLine {
   item_id: string; code: string; name: string; uom: string; qty: string; unit_price: string;
   list_price: string | null; discount_pct: string; tax_rate: string; line_subtotal: string;
-  line_tax: string; line_total: string;
+  line_tax: string; line_total: string; promo_amount?: string; promo_name?: string | null;
 }
+interface Member { card_no: string; name: string; points: number; points_value: string }
 interface Quote {
   lines: QuoteLine[]; subtotal: string; tax_total: string; total: string; cash_total: string;
   needs_supervisor: string[];
+  promotions?: { code: string; name: string; saving: string }[];
+  member?: Member | null;
 }
 interface Sale {
   kind: "SALE" | "RETURN"; receipt_no: string; sold_at: string; subtotal: string;
@@ -38,7 +41,7 @@ interface Sale {
   lines: { line_no: number; item_id: string; item_name?: string; uom: string; qty: string;
            unit_price: string; line_total: string }[];
 }
-type Method = "CASH" | "CARD" | "EWALLET";
+type Method = "CASH" | "CARD" | "EWALLET" | "POINTS";
 
 // --- money maths for the offline estimate (the server's figures win when online) ----------
 
@@ -147,6 +150,8 @@ export function Till() {
   const [receipt, setReceipt] = useState<ReceiptData | null>(null);
   const [panel, setPanel] = useState<"close" | "return" | null>(null);
   const [editing, setEditing] = useState<{ key: string; price: string; disc: string } | null>(null);
+  const [card, setCard] = useState("");          // member card / phone for this basket
+  const [cardText, setCardText] = useState<string | null>(null);  // the member box, when open
   const waiting = useWaiting();
   const scanRef = useRef<HTMLInputElement>(null);
   const saleId = useRef<string>(crypto.randomUUID()); // one per basket: retries reuse it
@@ -186,7 +191,8 @@ export function Till() {
     // and takes over as soon as it answers.
     if (offline || sessionOffline) setQuote(estimate(lines));
     const h = window.setTimeout(() => {
-      api<Quote>("/pos/quote", { method: "POST", body: { lines: lines.map(wire) },
+      api<Quote>("/pos/quote", { method: "POST",
+                                 body: { lines: lines.map(wire), ...(card ? { member_card: card } : {}) },
                                  timeoutMs: 3000 })
         .then((q) => { if (live) { remember(q); setQuote(q); setOffline(false); setError(null); } })
         .catch((e) => {
@@ -199,7 +205,10 @@ export function Till() {
         });
     }, 200);
     return () => { live = false; window.clearTimeout(h); };
-  }, [lines]);
+  }, [lines, card]);
+  const member = card ? quote?.member ?? null : null;
+  const saved = (quote?.promotions ?? []).reduce((x, p) => x + Number(p.saving), 0);
+  useEffect(() => { if (!member && method === "POINTS") setMethod("CASH"); }, [member, method]);
 
   function wire(l: Line) {
     return {
@@ -280,9 +289,12 @@ export function Till() {
       payments: [{ method, amount: method === "CASH" ? (tendered || total) : quote.total,
                    ...(reference ? { reference } : {}) }],
       ...(sup ? { supervisor: sup } : {}),
+      ...(card ? { member_card: card } : {}),
     };
     const queueOffline = () => {
-      outbox.push({ path: "/pos/sales", body });
+      if (method === "POINTS") { setError(t("pointsOffline")); return; }
+      // the customer pays what the till shows now: no promotions worked out later
+      outbox.push({ path: "/pos/sales", body: { ...body, apply_promotions: false } });
       announce();
       const q = quote;
       finish({ kind: "SALE", receipt_no: t("pendingNo"), sold_at: body.sold_at,
@@ -337,6 +349,8 @@ export function Till() {
     setLines([]);
     setTendered("");
     setReference("");
+    setCard("");
+    setCardText(null);
     saleId.current = crypto.randomUUID();
   }
 
@@ -352,11 +366,29 @@ export function Till() {
           <div className="row">
             {waiting > 0 && <span className="badge amber">{waiting} {t("waitingUpload")}</span>}
             {offline && <span className="badge red">{t("offline")}</span>}
+            <button className={`btn ghost${card ? " member-on" : ""}`}
+                    onClick={() => setCardText(cardText === null ? card : null)}>
+              {member ? `★ ${member.name}` : t("memberCard")}
+            </button>
             {can("pos.return.create") &&
               <button className="btn ghost" onClick={() => setPanel("return")}>{t("refund")}</button>}
             <button className="btn ghost" onClick={() => setPanel("close")}>{t("closeShift")}</button>
           </div>
         </div>
+        {cardText !== null && (
+          <form className="member-box" onSubmit={(e) => { e.preventDefault(); setCard(cardText.trim()); setCardText(null); }}>
+            <input className="input" autoFocus value={cardText} placeholder={t("memberCardPh")}
+                   aria-label={t("memberCard")} onChange={(e) => setCardText(e.target.value)} />
+            <button className="btn">OK</button>
+            {card && <button type="button" className="chip-btn"
+                             onClick={() => { setCard(""); setCardText(null); }}>{t("remove")}</button>}
+          </form>
+        )}
+        {card && quote && !quote.member && !offline && <div className="error" style={{ margin: "0 16px" }}>{t("memberNotFound")}</div>}
+        {member && (
+          <div className="member-line">★ {member.name} · {member.card_no} · {member.points} {t("points")}
+            <span className="muted"> ({money(member.points_value)})</span></div>
+        )}
         <form onSubmit={onScan} className="scan">
           <span aria-hidden>▤</span>
           <input ref={scanRef} value={scan} onChange={(e) => setScan(e.target.value)}
@@ -380,6 +412,9 @@ export function Till() {
                   <div className="muted">{l.code} · {l.uom} · {q ? money(q.unit_price) : "…"}
                     {q && Number(q.discount_pct) > 0 && ` −${Number(q.discount_pct)}%`}
                     {q && Number(q.tax_rate) > 0 && ` · SST ${Number(q.tax_rate)}%`}</div>
+                  {q && Number(q.promo_amount ?? 0) > 0 && (
+                    <div className="promo-tag">{q.promo_name} −{money(q.promo_amount!)}</div>
+                  )}
                 </div>
                 <div className="qty">
                   <button onClick={() => setLines((ls) => ls.map((x) => x.key === l.key
@@ -428,7 +463,10 @@ export function Till() {
       </section>
 
       <aside className="glass pay">
-        <div className="row"><span className="muted">{t("subtotalLabel")}</span><span>{money(quote?.subtotal ?? 0)}</span></div>
+        <div className="row"><span className="muted">{t("subtotalLabel")}</span><span>{money(r2(Number(quote?.subtotal ?? 0) + saved))}</span></div>
+        {saved > 0 && (
+          <div className="row promo-row"><span>{t("promoSaved")}</span><span>−{money(saved)}</span></div>
+        )}
         <div className="row"><span className="muted">SST</span><span>{money(quote?.tax_total ?? 0)}</span></div>
         {method === "CASH" && quote && quote.cash_total !== quote.total && (
           <div className="row"><span className="muted">{t("rounding")}</span>
@@ -439,9 +477,9 @@ export function Till() {
           <div className="checks">{t("needsSupervisor")}</div>
         )}
         <div className="tabs methods">
-          {(["CASH", "CARD", "EWALLET"] as Method[]).map((m) => (
+          {(["CASH", "CARD", "EWALLET", ...(member ? ["POINTS"] : [])] as Method[]).map((m) => (
             <button key={m} className={m === method ? "on" : ""} onClick={() => setMethod(m)}>
-              {t(m === "CASH" ? "cash" : m === "CARD" ? "card" : "ewallet")}
+              {t(m === "CASH" ? "cash" : m === "CARD" ? "card" : m === "EWALLET" ? "ewallet" : "payPoints")}
             </button>
           ))}
         </div>
@@ -458,6 +496,10 @@ export function Till() {
             <div className="row"><span className="muted">{t("change")}</span>
               <strong className="big">{money(change)}</strong></div>
           </>
+        ) : method === "POINTS" ? (
+          <div className={Number(member?.points_value ?? 0) >= Number(total) ? "muted" : "error"}>
+            {t("pointsHave")} {money(member?.points_value ?? 0)}
+          </div>
         ) : (
           <input className="input" placeholder={t("reference")} value={reference}
                  onChange={(e) => setReference(e.target.value)} />

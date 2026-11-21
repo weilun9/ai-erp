@@ -54,11 +54,14 @@ from app.models.md import (  # noqa: F401
     Uom,
 )
 from app.models.pos import (  # noqa: F401
+    Member,
+    PointsMove,
     PosConsolidation,
     PosLine,
     PosPayment,
     PosSale,
     PosShift,
+    Promotion,
 )
 from app.models.pur import (  # noqa: F401
     Grn,

@@ -42,7 +42,7 @@ from app.models import (
     Tag,
     TaxCode,
 )
-from app.services import audit, masterdata
+from app.services import audit, loyalty, masterdata, promotions
 from app.services.auth import Principal, authenticate
 from app.services.doclib import line_amounts, q2, q4
 from app.services.numbering import next_doc_no
@@ -415,12 +415,38 @@ def sell(db: Session, p: Principal, body: dict[str, Any]) -> tuple[PosSale, bool
         db.commit()  # release the lock
         return get_sale(db, p, sale_id=old.id), True
     shift = _my_open_shift(db, p)
-    lines, needs, _ = _price_lines(db, p, body.get("lines") or [])
+    member = (
+        loyalty.find(db, p, body["member_card"], lock=True) if body.get("member_card") else None
+    )
+    lines, needs, items = _price_lines(db, p, body.get("lines") or [])
+    when = _when(shift, body.get("sold_at"))
+    if body.get("apply_promotions", True):
+        promotions.apply(
+            db,
+            p.company_id,
+            location_id=shift.location_id,
+            on=when.astimezone(ZoneInfo(TIMEZONE)).date(),
+            lines=lines,
+            items=items,
+            member=member is not None,
+        )
     approval = _supervisor(db, p, body.get("supervisor"), needs)
 
     subtotal = sum((x.line_subtotal for x in lines), ZERO)
     tax_total = sum((x.line_tax for x in lines), ZERO)
     rounding, tendered, change, payments = _settle(subtotal + tax_total, body["payments"])
+    by_points = sum((x.amount for x in payments if x.method == "POINTS"), ZERO)
+    points_used = 0
+    if by_points:
+        if member is None:
+            raise BusinessRule("Scan the member's card to pay with points")
+        points_used = loyalty.points_for(by_points)
+        if points_used > member.points:
+            raise BusinessRule(
+                "Not enough points", {"points": member.points, "needed": points_used}
+            )
+    total = subtotal + tax_total + rounding
+    points_earned = loyalty.earned(total - by_points) if member else 0
 
     sale = PosSale(
         company_id=p.company_id,
@@ -431,23 +457,33 @@ def sell(db: Session, p: Principal, body: dict[str, Any]) -> tuple[PosSale, bool
         location_id=shift.location_id,
         cashier_id=p.user_id,
         customer_id=body.get("customer_id"),
-        sold_at=_when(shift, body.get("sold_at")),
+        member_id=member.id if member else None,
+        points_earned=points_earned,
+        points_used=points_used,
+        sold_at=when,
         subtotal=subtotal,
         tax_total=tax_total,
         rounding=rounding,
-        total=subtotal + tax_total + rounding,
+        total=total,
         tendered=tendered,
         change=change,
         approved_by=approval.user_id if approval.reasons else None,
         lines=lines,
         payments=payments,
     )
+
+    def points(sale: PosSale) -> None:
+        if member is not None:
+            loyalty.move(db, p, member, -points_used, "REDEEM", sale_id=sale.id)
+            loyalty.move(db, p, member, points_earned, "EARN", sale_id=sale.id)
+
     return _book(
         db,
         p,
         sale,
         [Move(x.item_id, shift.location_id, -x.base_qty, None) for x in lines],
         approval,
+        points,
     )
 
 
@@ -486,10 +522,26 @@ def catalog(db: Session, p: Principal) -> dict[str, Any]:
     }
 
 
-def quote(db: Session, p: Principal, raw: list[dict[str, Any]]) -> dict[str, Any]:
+def quote(
+    db: Session, p: Principal, raw: list[dict[str, Any]], member_card: str | None = None
+) -> dict[str, Any]:
     """What the till shows while scanning: the same pricing as the sale, nothing saved."""
     p.require("pos.sale.create")
+    member = loyalty.find(db, p, member_card) if member_card else None
     lines, needs, items = _price_lines(db, p, raw)
+    shift = current_shift(db, p)
+    used = []
+    if shift is not None:
+        used = promotions.apply(
+            db,
+            p.company_id,
+            location_id=shift.location_id,
+            on=datetime.now(ZoneInfo(TIMEZONE)).date(),
+            lines=lines,
+            items=items,
+            member=member is not None,
+        )
+    names = {x["id"]: x["name"] for x in used}
     subtotal = sum((x.line_subtotal for x in lines), ZERO)
     tax_total = sum((x.line_tax for x in lines), ZERO)
     total = subtotal + tax_total
@@ -510,9 +562,24 @@ def quote(db: Session, p: Principal, raw: list[dict[str, Any]]) -> dict[str, Any
                 "line_subtotal": x.line_subtotal,
                 "line_tax": x.line_tax,
                 "line_total": x.line_total,
+                "promo_amount": x.promo_amount or ZERO,
+                "promo_name": names.get(x.promo_id),
             }
             for x, item in zip(lines, items, strict=True)
         ],
+        "promotions": used,
+        "member": (
+            {
+                "id": member.id,
+                "card_no": member.card_no,
+                "name": member.name,
+                "points": member.points,
+                "points_value": q2(member.points * loyalty.point_value()),
+                "point_value": loyalty.point_value(),
+            }
+            if member
+            else None
+        ),
         "subtotal": q2(subtotal),
         "tax_total": q2(tax_total),
         "total": q2(total),
@@ -521,13 +588,17 @@ def quote(db: Session, p: Principal, raw: list[dict[str, Any]]) -> dict[str, Any
     }
 
 
-def _book(db, p, sale: PosSale, moves: list[Move], approval: Approval) -> tuple[PosSale, bool]:
+def _book(
+    db, p, sale: PosSale, moves: list[Move], approval: Approval, then=None
+) -> tuple[PosSale, bool]:
     db.add(sale)
     try:
         db.flush()
     except IntegrityError:  # backstop; _claim normally serializes the same client_uuid
         db.rollback()
         return _replay(db, p, sale.client_uuid), True
+    if then is not None:
+        then(sale)
     moves = [
         Move(m.item_id, m.location_id, m.qty, m.unit_cost, line.id)
         for m, line in zip(moves, sale.lines, strict=True)
@@ -610,6 +681,10 @@ def refund(db: Session, p: Principal, body: dict[str, Any]) -> tuple[PosSale, bo
             line_tax = src.line_tax - got_tax  # than was charged
         else:
             subtotal, line_tax = line_amounts(qty, src.unit_price, src.discount_pct, src.tax_rate)
+            if src.promo_amount:  # this share of the promotion is not refunded
+                subtotal -= q2(src.promo_amount * qty / src.qty)
+                line_tax = q2(subtotal * src.tax_rate / Decimal(100))
+        share = q2(src.promo_amount * qty / src.qty) if src.promo_amount else ZERO
         base = q4(qty * src.factor)
         lines.append(
             PosLine(
@@ -630,6 +705,8 @@ def refund(db: Session, p: Principal, body: dict[str, Any]) -> tuple[PosSale, bo
                 line_tax=-line_tax,
                 line_total=-(subtotal + line_tax),
                 ref_line_id=src.id,
+                promo_id=src.promo_id,
+                promo_amount=-share,
             )
         )
         moves.append(Move(src.item_id, shift.location_id, base, src.unit_cost))
@@ -649,6 +726,20 @@ def refund(db: Session, p: Principal, body: dict[str, Any]) -> tuple[PosSale, bo
     needs = [f"refund RM{-total:.2f} is above RM{limit:.2f}"] if -total > limit else []
     approval = _supervisor(db, p, body.get("supervisor"), needs)
 
+    member = loyalty.get(db, p, original.member_id, lock=True) if original.member_id else None
+    back_earned = back_used = 0
+    if member is not None:
+        if original.subtotal and original.points_earned:  # its share of what the sale earned
+            back_earned = int(
+                (
+                    Decimal(original.points_earned) * -subtotal / original.subtotal
+                ).to_integral_value()
+            )
+        if method == "POINTS":
+            back_used = int(-total / loyalty.point_value())
+    elif method == "POINTS":
+        raise BusinessRule("This receipt has no member to give points back to")
+
     sale = PosSale(
         company_id=p.company_id,
         client_uuid=body["client_uuid"],
@@ -658,6 +749,9 @@ def refund(db: Session, p: Principal, body: dict[str, Any]) -> tuple[PosSale, bo
         location_id=shift.location_id,
         cashier_id=p.user_id,
         customer_id=original.customer_id,
+        member_id=original.member_id,
+        points_earned=-back_earned,
+        points_used=-back_used,
         ref_sale_id=original.id,
         sold_at=datetime.now(UTC),
         subtotal=subtotal,
@@ -678,7 +772,13 @@ def refund(db: Session, p: Principal, body: dict[str, Any]) -> tuple[PosSale, bo
         original.id,
         after={"receipt": original.receipt_no, "refund": q2(total), "method": method},
     )
-    return _book(db, p, sale, moves, approval)
+
+    def points(ret: PosSale) -> None:
+        if member is not None:
+            loyalty.move(db, p, member, -back_earned, "RETURN", sale_id=ret.id)
+            loyalty.move(db, p, member, back_used, "REFUND", sale_id=ret.id)
+
+    return _book(db, p, sale, moves, approval, points)
 
 
 # --- reading ------------------------------------------------------------------------------

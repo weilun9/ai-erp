@@ -55,6 +55,8 @@ PERMISSIONS: dict[str, str] = {
     "pos.return.create": "Refund POS receipts (above the limit needs a supervisor)",
     "pos.supervise": "Approve price overrides, discounts and large refunds at the till; "
     "see every shift",
+    "pos.promo.manage": "Create and edit promotions",
+    "pos.member.manage": "Sign up loyalty members and adjust their points",
     # issues
     "core.issue.read": "View problem documents",
     "core.issue.handle": "Handle problem documents",
@@ -146,6 +148,7 @@ TAG_TEMPLATES: dict[str, TagTemplate] = {
                     "pos.sale.create",
                     "pos.shift.close",
                     "pos.return.create",
+                    "pos.member.manage",
                     "ai.chat.use",
                     "ai.kb.read",
                 }

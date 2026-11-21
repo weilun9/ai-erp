@@ -84,6 +84,7 @@ DEFAULT_CHART = (
     ("5000", "Cost of goods sold", "EXPENSE", "COGS"),
     ("5100", "Stock adjustments and write-offs", "EXPENSE", "STOCK_ADJ"),
     ("6000", "Purchase charges", "EXPENSE", "PURCHASE_EXP"),
+    ("6100", "Loyalty points redeemed", "EXPENSE", "LOYALTY"),
     ("6900", "Rounding", "EXPENSE", "ROUNDING"),
 )
 # Party sub-ledgers and stock are kept by the documents; a manual journal may not touch them.
@@ -187,6 +188,8 @@ def _local(ts: datetime) -> date:
 
 
 def _money_key(method: str | None) -> str:
+    if method == "POINTS":  # loyalty points spent at the till: a cost of the scheme
+        return "LOYALTY"
     return "CASH" if method == "CASH" else "BANK"
 
 
