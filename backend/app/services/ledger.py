@@ -26,7 +26,7 @@ What each document books (Dr / Cr):
 import uuid
 from collections import defaultdict
 from dataclasses import dataclass
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 from typing import Any
 from zoneinfo import ZoneInfo
@@ -45,6 +45,7 @@ from app.models import (
     Grn,
     Journal,
     JournalLine,
+    PeriodClose,
     PosSale,
     SalesInvoice,
     StockAdjustment,
@@ -400,6 +401,7 @@ def sync(db: Session, company_id: uuid.UUID) -> int:
         {"c": str(company_id)},
     )
     accounts = ensure_chart(db, company_id)
+    first_open = _first_open_day(db, company_id)
     have = set(
         db.execute(
             select(Journal.source_type, Journal.source_id, Journal.is_reversal).where(
@@ -435,11 +437,21 @@ def sync(db: Session, company_id: uuid.UUID) -> int:
         for d in todo:
             lines = src.build(d, sv)
             if (src.code, d.id, False) not in have:
-                _make(db, company_id, accounts, src, d, lines, reversal=False, when=_doc_date(d))
+                when = _open(_doc_date(d), first_open)
+                _make(db, company_id, accounts, src, d, lines, reversal=False, when=when)
                 made += 1
             if getattr(d, "status", None) == "VOIDED" and (src.code, d.id, True) not in have:
                 when = _local(d.voided_at) if d.voided_at else _doc_date(d)
-                _make(db, company_id, accounts, src, d, lines, reversal=True, when=when)
+                _make(
+                    db,
+                    company_id,
+                    accounts,
+                    src,
+                    d,
+                    lines,
+                    reversal=True,
+                    when=_open(when, first_open),
+                )
                 made += 1
     db.flush()
     return made
@@ -462,6 +474,7 @@ def create_manual(
     accruals...). It must balance and may not touch AR / AP / inventory, which the
     documents keep."""
     p.require("acc.journal.create")
+    check_open(db, p.company_id, journal_date)
     accounts = {
         a.id: a for a in db.scalars(select(Account).where(Account.company_id == p.company_id))
     }
@@ -517,7 +530,7 @@ def void_manual(db: Session, p: Principal, journal_id: uuid.UUID, reason: str) -
     rev = Journal(
         company_id=p.company_id,
         doc_no=next_doc_no(db, p.company_id, "JV"),
-        journal_date=_local(datetime.now(UTC)),
+        journal_date=_open(_local(datetime.now(UTC)), _first_open_day(db, p.company_id)),
         source_type="JV",
         memo=f"Void of {j.doc_no}: {reason}",
         is_reversal=True,
@@ -595,13 +608,22 @@ def list_journals(
 # --- statements ------------------------------------------------------------------------------
 
 
-def _movements(db: Session, company_id, *, date_from: date | None, date_to: date | None):
+def _movements(
+    db: Session,
+    company_id,
+    *,
+    date_from: date | None,
+    date_to: date | None,
+    without_closing: bool = False,
+):
     stmt = (
         select(JournalLine.account_id, func.sum(JournalLine.debit), func.sum(JournalLine.credit))
         .join(Journal, Journal.id == JournalLine.journal_id)
         .where(Journal.company_id == company_id)
         .group_by(JournalLine.account_id)
     )
+    if without_closing:
+        stmt = stmt.where(Journal.source_type != CLOSING)
     if date_from:
         stmt = stmt.where(Journal.journal_date >= date_from)
     if date_to:
@@ -656,7 +678,7 @@ def trial_balance(db: Session, p: Principal, as_of: date) -> dict[str, Any]:
 
 def profit_and_loss(db: Session, p: Principal, date_from: date, date_to: date) -> dict[str, Any]:
     _prepare(db, p)
-    mv = _movements(db, p.company_id, date_from=date_from, date_to=date_to)
+    mv = _movements(db, p.company_id, date_from=date_from, date_to=date_to, without_closing=True)
     income, expense = [], []
     for a in _accounts(db, p.company_id):
         if a.type not in ("INCOME", "EXPENSE"):
@@ -698,7 +720,7 @@ def balance_sheet(db: Session, p: Principal, as_of: date) -> dict[str, Any]:
         if a.type in out:
             out[a.type].append(_row(a, d, c))
         else:
-            profit += c - d  # income minus expense, not closed into retained earnings yet
+            profit += c - d  # income minus expense since the last year-end close
     ta = sum((r["balance"] for r in out["ASSET"]), ZERO)
     tl = sum((r["balance"] for r in out["LIABILITY"]), ZERO)
     te = sum((r["balance"] for r in out["EQUITY"]), ZERO) + profit
@@ -767,3 +789,158 @@ def account_ledger(
         "lines": lines,
         "closing": running,
     }
+
+
+# --- year-end close --------------------------------------------------------------------------
+
+CLOSING = "YEC"
+
+
+def closed_through(db: Session, company_id: uuid.UUID) -> date | None:
+    """The last day of the latest closed year (None = no year closed)."""
+    return db.scalar(
+        select(func.max(PeriodClose.year_end)).where(
+            PeriodClose.company_id == company_id, PeriodClose.reopened_at.is_(None)
+        )
+    )
+
+
+def _first_open_day(db: Session, company_id: uuid.UUID) -> date | None:
+    last = closed_through(db, company_id)
+    return last + timedelta(days=1) if last else None
+
+
+def _open(when: date, first_open: date | None) -> date:
+    """A document dated in a closed year is booked on the first open day instead."""
+    return max(when, first_open) if first_open else when
+
+
+def check_open(db: Session, company_id: uuid.UUID, when: date) -> None:
+    last = closed_through(db, company_id)
+    if last and when <= last:
+        raise BusinessRule(
+            f"The year up to {last.isoformat()} is closed; use a date after it",
+            {"closed_through": last.isoformat()},
+        )
+
+
+def list_closes(db: Session, p: Principal) -> list[PeriodClose]:
+    p.require("acc.read")
+    return list(
+        db.scalars(
+            select(PeriodClose)
+            .where(PeriodClose.company_id == p.company_id)
+            .order_by(PeriodClose.year_end.desc(), PeriodClose.closed_at.desc())
+        )
+    )
+
+
+def close_year(db: Session, p: Principal, year_end: date) -> PeriodClose:
+    """Move the year's income and expenses to retained earnings with one closing journal
+    dated year_end, and lock every date up to it."""
+    p.require("acc.period.close")
+    sync(db, p.company_id)
+    last = closed_through(db, p.company_id)
+    if last and year_end <= last:
+        raise BusinessRule(
+            f"Already closed up to {last.isoformat()}", {"closed_through": last.isoformat()}
+        )
+    if year_end >= _local(datetime.now(UTC)):
+        raise BusinessRule("A year can be closed only after its last day has passed")
+    accounts = ensure_chart(db, p.company_id)
+    mv = _movements(db, p.company_id, date_from=None, date_to=year_end)
+    j = Journal(
+        company_id=p.company_id,
+        doc_no=next_doc_no(db, p.company_id, CLOSING),
+        journal_date=year_end,
+        source_type=CLOSING,
+        memo=f"Year-end close to {year_end.isoformat()}",
+        created_by=p.user_id,
+    )
+    n, profit = 0, ZERO
+    for a in _accounts(db, p.company_id):
+        if a.type not in ("INCOME", "EXPENSE"):
+            continue
+        d, c = mv.get(a.id, (ZERO, ZERO))
+        net = d - c
+        if not net:
+            continue
+        profit -= net
+        n += 1
+        j.lines.append(
+            JournalLine(
+                line_no=n,
+                account_id=a.id,
+                debit=max(-net, ZERO),
+                credit=max(net, ZERO),
+                memo="Closed to retained earnings",
+            )
+        )
+    n += 1
+    j.lines.append(
+        JournalLine(
+            line_no=n,
+            account_id=accounts["RETAINED"].id,
+            debit=max(-profit, ZERO),
+            credit=max(profit, ZERO),
+            memo="Result for the year" if profit else "Nothing to close",
+        )
+    )
+    db.add(j)
+    db.flush()
+    pc = PeriodClose(
+        company_id=p.company_id,
+        year_end=year_end,
+        journal_id=j.id,
+        net_profit=profit,
+        closed_by=p.user_id,
+    )
+    db.add(pc)
+    db.flush()
+    audit.record(
+        db,
+        p,
+        "close_year",
+        "acc.period_close",
+        pc.id,
+        after={"year_end": year_end, "net_profit": profit, "journal": j.doc_no},
+    )
+    db.commit()
+    return pc
+
+
+def reopen_year(db: Session, p: Principal) -> PeriodClose:
+    """Undo the latest close (to correct something): its closing journal is reversed."""
+    p.require("acc.period.close")
+    pc = db.scalar(
+        select(PeriodClose)
+        .where(PeriodClose.company_id == p.company_id, PeriodClose.reopened_at.is_(None))
+        .order_by(PeriodClose.year_end.desc())
+        .with_for_update()
+    )
+    if pc is None:
+        raise BusinessRule("No closed year to reopen")
+    j = db.get(Journal, pc.journal_id)
+    rev = Journal(
+        company_id=p.company_id,
+        doc_no=next_doc_no(db, p.company_id, CLOSING),
+        journal_date=pc.year_end,
+        source_type=CLOSING,
+        memo=f"Reopen of {j.doc_no}",
+        is_reversal=True,
+        reverses_id=j.id,
+        created_by=p.user_id,
+    )
+    for ln in j.lines:
+        rev.lines.append(
+            JournalLine(
+                line_no=ln.line_no, account_id=ln.account_id, debit=ln.credit, credit=ln.debit
+            )
+        )
+    j.status, j.voided_at, j.void_reason = "VOIDED", datetime.now(UTC), "Year reopened"
+    pc.reopened_at, pc.reopened_by = datetime.now(UTC), p.user_id
+    db.add(rev)
+    db.flush()
+    audit.record(db, p, "reopen_year", "acc.period_close", pc.id, after={"year_end": pc.year_end})
+    db.commit()
+    return pc

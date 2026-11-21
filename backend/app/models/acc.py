@@ -107,3 +107,39 @@ class JournalLine(UUIDPk, Base):
     party_id: Mapped[uuid.UUID | None] = mapped_column(Uuid)
     memo: Mapped[str | None] = mapped_column(String(200))
     journal: Mapped[Journal] = relationship(back_populates="lines")
+
+
+class PeriodClose(UUIDPk, Base):
+    """A closed financial year: its income and expenses were moved to retained earnings by
+    a closing journal (source YEC), and nothing may be booked on or before year_end any more
+    (late documents land on the first open day). Reopening reverses the closing journal."""
+
+    __tablename__ = "period_close"
+    __table_args__ = {"schema": SCHEMA}
+    company_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("core.company.id"), index=True)
+    year_end: Mapped[date] = mapped_column(Date)
+    journal_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("acc.journal.id"))
+    net_profit: Mapped[Decimal] = mapped_column(Money)
+    closed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    closed_by: Mapped[uuid.UUID | None] = mapped_column(Uuid)
+    reopened_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    reopened_by: Mapped[uuid.UUID | None] = mapped_column(Uuid)
+
+
+class BankMatch(UUIDPk, Base):
+    """Bank reconciliation: this book entry (a journal line on a bank account) is the one
+    that statement line shows. A statement line may match several book lines (one deposit
+    of several receipts); a book line matches at most one statement line."""
+
+    __tablename__ = "bank_match"
+    __table_args__ = (
+        UniqueConstraint("journal_line_id", name="uq_bank_match_line"),
+        {"schema": SCHEMA},
+    )
+    company_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("core.company.id"), index=True)
+    bank_txn_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("fin.bank_txn.id", ondelete="CASCADE"), index=True
+    )
+    journal_line_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("acc.journal_line.id"))
+    matched_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    matched_by: Mapped[uuid.UUID | None] = mapped_column(Uuid)

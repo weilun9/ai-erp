@@ -32,6 +32,7 @@ DEFAULT_PREFIX = {
     "POSR": "RTN",
     "SHIFT": "SHF",
     "CON": "CON",
+    "YEC": "YEC",
 }
 
 

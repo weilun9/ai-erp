@@ -744,3 +744,20 @@ select.cell-in option { background: var(--surface-2); }
 .lot-expired { color: var(--red); font-weight: 600; }
 .lot-soon { color: var(--amber); font-weight: 600; }
 td.neg { color: var(--red); }
+
+/* --- bank reconciliation ---------------------------------------------------------------------- */
+.rec-sum { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 10px; }
+.rec-sum > div { display: flex; flex-direction: column; gap: 2px; padding: 10px 14px; border-radius: 16px;
+  background: var(--fill); font-size: 13px; }
+.rec-sum > div span { color: var(--ink-soft); }
+.rec-sum > div b { font-size: 16px; }
+.rec-sum .grand { box-shadow: inset 0 0 0 1px var(--line); }
+.rec-sum .rec-ok { background: var(--green-soft); color: var(--green); }
+.rec-sum .rec-off { background: var(--red-soft); color: var(--red); }
+.rec-pair { display: grid; grid-template-columns: minmax(0, 1fr); gap: 18px; }
+@media (min-width: 1100px) { .rec-pair { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); } }
+.rec-actions { display: flex; flex-direction: column; gap: 8px; padding-top: 6px; border-top: 1px solid var(--line); }
+.paste-box { display: flex; flex-direction: column; gap: 8px; }
+.paste-box textarea { font-family: ui-monospace, Consolas, monospace; font-size: 13px; resize: vertical; }
+.ok-text { color: var(--green); font-size: 14px; }
+.table tr.picked td { background: color-mix(in srgb, var(--accent) 10%, transparent); }

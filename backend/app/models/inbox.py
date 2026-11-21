@@ -98,6 +98,8 @@ class BankTxn(UUIDPk, Base):
     reference: Mapped[str | None] = mapped_column(String(100))
     description: Mapped[str | None] = mapped_column(String(300))
     source_file_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("pur.inbox_file.id"))
+    # the bank account in the ledger this statement line belongs to (None = the default BANK)
+    account_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("acc.account.id"))
     matched_doc_type: Mapped[str | None] = mapped_column(String(10))
     matched_doc_id: Mapped[uuid.UUID | None] = mapped_column(Uuid)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
