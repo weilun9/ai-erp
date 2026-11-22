@@ -401,6 +401,7 @@ const en = {
   accBank: "Bank reconciliation",
   sstTitle: "SST return",
   aiStop: "Stop",
+  aiAttach: "Attach a filled Excel template",
   aiThoughtFor: "Thought for {s}s",
   aiThinkingShort: "AI thinking",
   aiBackToChat: "Back to the AI butler",

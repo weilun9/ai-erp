@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import DOMPurify from "dompurify";
 import { marked } from "marked";
-import { api, money } from "../api";
+import { api, apiBlob, money } from "../api";
 import { useSession } from "../session";
 import { butler, useButler } from "../butlerStore";
 import type { Action } from "../butlerStore";
@@ -18,7 +18,18 @@ function Markdown({ text }: { text: string }) {
       onClick={(e) => {
         const a = (e.target as HTMLElement).closest("a");
         const href = a?.getAttribute("href") ?? "";
-        if (href.startsWith("/") && !href.startsWith("//")) {
+        if (href.startsWith("/download/")) {  // a file from the API (an Excel template)
+          e.preventDefault();
+          const path = href.slice("/download".length);
+          apiBlob(path).then((blob) => {
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement("a");
+            link.href = url;
+            link.download = `${path.split("/").pop()?.split("?")[0] ?? "template"}-template.xlsx`;
+            link.click();
+            setTimeout(() => URL.revokeObjectURL(url), 2000);
+          }).catch((err) => alert(err instanceof Error ? err.message : String(err)));
+        } else if (href.startsWith("/") && !href.startsWith("//")) {
           e.preventDefault();
           nav(href);
         }
@@ -41,6 +52,7 @@ const TOOL_LABEL: Record<string, string> = {
   search_knowledge: "knowledge",
   draft_document: "draft",
   how_to: "guide",
+  excel_template: "template",
 };
 
 /** Seconds since `since`, ticking ten times a second while it runs. */
@@ -131,6 +143,7 @@ export function Butler() {
   const st = useButler();
   const [text, setText] = useState("");
   const bottom = useRef<HTMLDivElement>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
   const busy = st.busySince !== null;
   const elapsed = useElapsed(st.busySince);
 
@@ -213,6 +226,10 @@ export function Butler() {
           <div ref={bottom} />
         </div>
         <form className="composer" onSubmit={(e) => { e.preventDefault(); send(); }}>
+          <input ref={fileRef} type="file" hidden accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                 onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ""; if (f) butler.attach(f); }} />
+          <button type="button" className="round-btn attach-btn" style={{ width: 48, height: 48 }} disabled={busy}
+                  title={t("aiAttach")} aria-label={t("aiAttach")} onClick={() => fileRef.current?.click()}>📎</button>
           <textarea value={text} placeholder={t("askPlaceholder")} rows={1}
                     onChange={(e) => setText(e.target.value)}
                     onKeyDown={(e) => {

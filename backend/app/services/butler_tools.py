@@ -567,8 +567,29 @@ def _draft_checks(db, p, kind, party, loc, need, names, estimate) -> list[str]:
     return out
 
 
+def t_template(db, p, a):
+    from app.services import sheet_import
+
+    kind = _choice(a.get("doc_type"), tuple(sheet_import.KINDS), "doc_type")
+    p.require("pur.doc.create" if kind == "grn" else "sal.doc.create")
+    prefill = {k: a[k] for k in ("party", "ref_no", "doc_date", "store", "remark") if a.get(k)}
+    prefill["lines"] = [
+        {k: str(x[k]) for k in ("code", "name", "unit", "qty", "unit_price") if x.get(k)}
+        for x in (a.get("lines") or [])[:100]
+        if isinstance(x, dict)
+    ]
+    token = sheet_import.encode_prefill(prefill)
+    return {
+        "link_markdown": f"[Download the Excel template](/download/ai/templates/{kind}?p={token})",
+        "next": "The user fills it (new items need a name and unit), then attaches it in this "
+        "chat with the paper-clip button; a card with the new items and the draft follows.",
+    }
+
+
 def execute(db: Session, p: Principal, tool: str, payload: dict[str, Any]) -> dict[str, Any]:
     """Run a confirmed proposal as the user (permissions are checked again here)."""
+    if tool == "import_sheet":
+        return _import_sheet(db, p, payload)
     if tool != "draft_document":
         raise NotFound(f"Unknown action {tool}")
     kind = payload["doc_type"]
@@ -583,6 +604,41 @@ def execute(db: Session, p: Principal, tool: str, payload: dict[str, Any]) -> di
         "status": out["status"],
         "total": out.get("total"),
     }
+
+
+def _import_sheet(db: Session, p: Principal, payload: dict[str, Any]) -> dict[str, Any]:
+    """A filled Excel template the user agreed to: create its new items, then the draft."""
+    from app.models import Item
+
+    made = []
+    for x in payload.get("new_items") or []:
+        exists = db.scalar(
+            select(Item.id).where(Item.company_id == p.company_id, Item.code == x["code"])
+        )
+        if exists is None:  # made since the card was shown? then use that one
+            masterdata.create_item(body=masterdata.ItemIn(**x), p=p, db=db)
+            made.append(x["code"])
+    ids = {}
+    for ln in payload["body"]["lines"]:
+        code = ln["item_code"]
+        if code not in ids:
+            ids[code] = db.scalar(
+                select(Item.id).where(Item.company_id == p.company_id, Item.code == code)
+            )
+            if ids[code] is None:
+                raise NotFound(f"Item {code} not found")
+    body = {
+        **payload["body"],
+        "lines": [
+            {
+                **{k: v for k, v in ln.items() if k != "item_code"},
+                "item_id": str(ids[ln["item_code"]]),
+            }
+            for ln in payload["body"]["lines"]
+        ],
+    }
+    out = execute(db, p, "draft_document", {"doc_type": payload["doc_type"], "body": body})
+    return {**out, "items_created": made}
 
 
 # --- registry -----------------------------------------------------------------------------
@@ -742,6 +798,42 @@ TOOLS: list[Tool] = [
             "required": ["topic"],
         },
         lambda db, p, a: app_guide.find(p, a.get("topic", "")),
+    ),
+    Tool(
+        "excel_template",
+        "Give the user an Excel template to fill when a document cannot be drafted yet: items "
+        "not in the system, or quantities / prices unknown. Fill in what you know (party code, "
+        "invoice no, date, store, line codes and names). Put link_markdown in your answer and "
+        "tell them to attach the filled file here with the paper-clip button.",
+        {
+            "type": "object",
+            "properties": {
+                "doc_type": {
+                    "type": S,
+                    "enum": ["grn", "sales-invoice", "quotation", "delivery-order"],
+                },
+                "party": {"type": S, "description": "supplier / customer code if known"},
+                "ref_no": {"type": S, "description": "supplier invoice no / customer ref"},
+                "doc_date": DATE,
+                "store": {"type": S},
+                "lines": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "code": {"type": S},
+                            "name": {"type": S},
+                            "unit": {"type": S},
+                            "qty": {"type": S},
+                            "unit_price": {"type": S},
+                        },
+                    },
+                },
+            },
+            "required": ["doc_type"],
+        },
+        t_template,
+        any_of=("pur.doc.create", "sal.doc.create"),
     ),
     Tool(
         "draft_document",

@@ -3,13 +3,13 @@
 import json
 import uuid
 from datetime import datetime
-from typing import Any
+from typing import Annotated, Any
 
-from fastapi import APIRouter
+from fastapi import APIRouter, File, Query, Response, UploadFile
 from pydantic import BaseModel, Field
 
 from app.api.deps import DB, CurrentUser
-from app.services import butler, mcp_tokens
+from app.services import butler, mcp_tokens, sheet_import
 from app.services import butler_tools as tools
 
 router = APIRouter(prefix="/ai", tags=["ai"])
@@ -135,6 +135,46 @@ def ask(conversation_id: uuid.UUID, body: AskIn, p: CurrentUser, db: DB) -> Turn
         pending_actions=[_action(a) for a in turn["pending_actions"]],
         tool_calls=turn["tool_calls"],
         seconds=turn["seconds"],
+    )
+
+
+@router.get("/templates/{kind}")
+def template(
+    kind: str,
+    p: CurrentUser,
+    db: DB,
+    prefill: Annotated[str | None, Query(alias="p", max_length=8000)] = None,
+) -> Response:
+    """The Excel template the butler links to (what it knows is filled in)."""
+    return _xlsx(kind, p, db, prefill)
+
+
+def _xlsx(kind, p, db, prefill) -> Response:
+    body = sheet_import.make_template(db, p, kind, sheet_import.decode_prefill(prefill))
+    return Response(
+        content=body,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{kind}-template.xlsx"'},
+    )
+
+
+@router.post("/conversations/{conversation_id}/sheet")
+async def attach_sheet(
+    conversation_id: uuid.UUID, p: CurrentUser, db: DB, file: Annotated[UploadFile, File()]
+) -> TurnOut:
+    """The filled template, attached in the chat: checked, then one card to agree to."""
+    content = await file.read()
+    if len(content) > 5_000_000:
+        from app.core.errors import BadRequest
+
+        raise BadRequest("The file is larger than 5 MB")
+    turn = butler.import_sheet(db, p, conversation_id, file.filename or "sheet.xlsx", content)
+    return TurnOut(
+        conversation=_conv(turn["conversation"]),
+        messages=[_msg(m) for m in turn["messages"]],
+        pending_actions=[_action(a) for a in turn["pending_actions"]],
+        tool_calls=0,
+        seconds=0,
     )
 
 

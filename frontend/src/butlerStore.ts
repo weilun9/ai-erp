@@ -2,7 +2,7 @@
 // arrives) while the user looks at other pages, and the top bar can show that it is busy.
 
 import { useSyncExternalStore } from "react";
-import { ApiError, api } from "./api";
+import { ApiError, api, apiUpload } from "./api";
 
 export interface Conversation { id: string; title: string; updated_at: string }
 export interface ToolCall { name: string; arguments: unknown }
@@ -128,6 +128,34 @@ export const butler = {
     const id = state.busyConv;
     controller?.abort();
     if (id) api(`/ai/conversations/${id}/stop`, { method: "POST" }).catch(() => undefined);
+  },
+
+  /** A filled Excel template attached in the chat: the server checks it and answers with a
+   *  card to agree to, or what to fix. */
+  async attach(file: File) {
+    if (state.busySince) return;
+    const started = Date.now();
+    set({ busySince: started, error: null, errorKind: null });
+    try {
+      let id = state.current;
+      if (!id) {
+        id = (await api<Conversation>("/ai/conversations", { method: "POST", body: {} })).id;
+        set({ current: id });
+      }
+      set({ busyConv: id });
+      const form = new FormData();
+      form.append("file", file);
+      const turn = await apiUpload<{ messages: Message[]; pending_actions: Action[] }>(
+        `/ai/conversations/${id}/sheet`, form);
+      if (state.current === id) {
+        set((s) => ({ messages: [...s.messages, ...turn.messages], actions: [...s.actions, ...turn.pending_actions] }));
+      }
+      butler.loadConvs();
+    } catch (e) {
+      set({ error: e instanceof Error ? e.message : String(e) });
+    } finally {
+      set({ busySince: null, busyConv: null });
+    }
   },
 
   updateAction(a: Action) {

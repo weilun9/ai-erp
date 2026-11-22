@@ -58,6 +58,9 @@ say so; never guess or estimate.
 - Never calculate money or quantities yourself (no multiplying prices, adding totals or \
 comparing to limits). Quote the figures tools give you. The draft card already shows the \
 system's estimate, stock check and credit check.
+- If a document cannot be drafted because items are not in the system or lines are \
+unknown, call excel_template (filled with what you know) instead of asking the user to \
+type everything; they fill it and attach it here.
 - When asked to create a document and the customer/supplier, items and quantities are \
 clear, call draft_document straight away; its checks will show any stock or credit \
 problem, which you then point out.
@@ -345,6 +348,44 @@ def chat(db: Session, p: Principal, conversation_id: uuid.UUID, text: str) -> di
 STOPPED = "Stopped."
 
 
+def import_sheet(
+    db: Session, p: Principal, conversation_id: uuid.UUID, filename: str, content: bytes
+) -> dict[str, Any]:
+    """The user attached a filled Excel template: check it and show one card (new items +
+    draft), or say what to fix. Nothing is written until they agree."""
+    from app.services import sheet_import
+
+    c = conversation(db, p, conversation_id)
+    first = _add(db, c, "user", f"📎 {filename}")
+    parsed = sheet_import.parse(db, p, content)
+    proposed = []
+    if parsed.get("errors"):
+        text = (
+            "I could not use this file yet. Please fix these and attach it again:\n\n"
+            + "\n".join(f"- {e}" for e in parsed["errors"])
+        )
+    else:
+        result = _propose(db, p, c, "import_sheet", parsed)
+        proposed.append(result["pending_action_id"])
+        lines = parsed["summary"]["lines"]
+        new = sum(1 for x in lines if x["item"].endswith("(new)"))
+        text = (
+            f"I read your Excel: {len(lines)} line(s)"
+            + (f", {new} new item(s) to create" if new else "")
+            + ". Check the card and press Agree & open; the document then opens and one more "
+            "Agree saves it."
+        )
+    _add(db, c, "assistant", text)
+    db.commit()
+    return {
+        "conversation": c,
+        "messages": messages(db, c.id, after=first.id - 1),
+        "pending_actions": [db.get(PendingAction, uuid.UUID(a)) for a in proposed],
+        "tool_calls": 0,
+        "seconds": 0,
+    }
+
+
 def _stopped(db: Session, c: Conversation) -> bool:
     db.refresh(c, ["stop_requested_at"])
     return c.stop_requested_at is not None
@@ -382,7 +423,9 @@ def confirm(db: Session, p: Principal, action_id: uuid.UUID) -> PendingAction:
     """The user pressed confirm: run it as the user, with today's permissions."""
     a = _action(db, p, action_id)
     tool = tools.BY_NAME.get(a.tool)
-    if tool is None or not tool.allowed(p):
+    # import_sheet is not a model tool: the user attached the file; its permissions are
+    # checked again by the document and item services it calls
+    if a.tool != "import_sheet" and (tool is None or not tool.allowed(p)):
         raise NotFound("This action is no longer available to you")
     # Marked first: the document service commits on its own, and this way that commit
     # carries the status too, so a second click (waiting on the row lock) sees CONFIRMED.
