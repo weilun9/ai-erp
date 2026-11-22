@@ -2,6 +2,8 @@ import { useEffect, useRef, useState } from "react";
 import { Link, NavLink, useLocation, useNavigate } from "react-router-dom";
 import { useSession } from "./session";
 import { useWaiting } from "./pos/sync";
+import { useButler } from "./butlerStore";
+import { useElapsed } from "./pages/Butler";
 
 // any one of these opens the Settings page (it shows the tabs the user may see)
 const SETTINGS_PERMS = ["md.setup.read", "core.user.read", "core.tag.read", "core.device.manage", "core.company.read"];
@@ -9,6 +11,8 @@ const SETTINGS_PERMS = ["md.setup.read", "core.user.read", "core.tag.read", "cor
 export function TopBar() {
   const { me, t, can, logout, offline } = useSession();
   const waiting = useWaiting();
+  const ai = useButler();
+  const aiSeconds = useElapsed(ai.busySince);
   const nav = useNavigate();
   const [q, setQ] = useState("");
   const initials = (me?.display_name ?? "?").slice(0, 1).toUpperCase();
@@ -68,6 +72,11 @@ export function TopBar() {
       <div className="user glass pill">
         {offline && <span className="badge red" title={t("offlineHint")}>{t("offline")}</span>}
         {waiting > 0 && <span className="badge amber">{waiting} {t("waitingUpload")}</span>}
+        {ai.busySince && pathname !== "/butler" && (
+          <Link className="ai-pill" to="/butler" title={t("aiBackToChat")}>
+            <span className="think-dot" aria-hidden="true" />{t("aiThinkingShort")} {aiSeconds.toFixed(0)}s
+          </Link>
+        )}
         <span>{me?.display_name}</span>
         {SETTINGS_PERMS.some(can) && <Link className="chip-btn" to="/settings">{t("settings")}</Link>}
         <button className="chip-btn" onClick={logout}>{t("logout")}</button>

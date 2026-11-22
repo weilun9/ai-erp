@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { api, money, qty as fmtQty } from "../api";
 import type { Page } from "../api";
 import { useSession } from "../session";
@@ -117,6 +117,8 @@ export function DocForm() {
 
 function Form({ def, id }: { def: KindDef; id: string }) {
   const { t, can } = useSession();
+  const [aiParams, setParams] = useSearchParams();
+  const fromAi = aiParams.get("ai") === "1";
   const nav = useNavigate();
   const [doc, setDoc] = useState<DocOut | null>(null);
   // posted lines of tracked items: the batches / serials the stock actually moved
@@ -388,6 +390,19 @@ function Form({ def, id }: { def: KindDef; id: string }) {
   });
 
   const saveDraft = () => run(async () => { await persist(); setNotice(t("saved")); });
+  // the AI butler drafted this: one Agree saves it (numbers it) and posts it
+  const aiAgree = () => run(async () => {
+    const d = await persist();
+    let after = d.status === "SAVED" ? d : await api<DocOut>(`${def.api}/${d.id}/save`,
+      { method: "POST", body: { version: d.version } });
+    const posting = def.posts && can(`${def.perm}.doc.post`);
+    if (posting) {
+      after = await api<DocOut>(`${def.api}/${after.id}/post`, { method: "POST", body: { version: after.version } });
+    }
+    await apply(after);
+    setNotice(t(posting ? "aiAgreedPosted" : "aiAgreed"));
+    setParams({}, { replace: true });
+  });
   const remove = () => run(async () => {
     if (!doc || !window.confirm(t("confirmDelete"))) return;
     await api(`${def.api}/${doc.id}`, { method: "DELETE" });
@@ -467,6 +482,21 @@ function Form({ def, id }: { def: KindDef; id: string }) {
   return (
     <>
     <div className="docform no-print">
+      {fromAi && doc && (status === "DRAFT" || status === "SAVED") && (
+        <section className="card glass ai-guide">
+          <div className="ai-guide-text">
+            <strong>✦ {t("aiGuideTitle")}</strong>
+            <ol>
+              <li>{t("aiGuideCheck")}</li>
+              <li>{def.posts && can(`${def.perm}.doc.post`) ? t("aiGuideAgreePost") : t("aiGuideAgreeSave")}</li>
+            </ol>
+          </div>
+          <div className="row" style={{ gap: 8 }}>
+            <button className="btn ghost" disabled={busy} onClick={() => setParams({}, { replace: true })}>{t("aiGuideLater")}</button>
+            <button className="btn green" disabled={busy} onClick={aiAgree}>{t("aiAgree")}</button>
+          </div>
+        </section>
+      )}
       <section className="card glass">
         <div className="row">
           <div>

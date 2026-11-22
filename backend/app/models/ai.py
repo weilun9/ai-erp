@@ -43,6 +43,8 @@ class Conversation(UUIDPk, Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
+    # the user pressed Stop: the running turn ends at its next step
+    stop_requested_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
 class Message(Base):

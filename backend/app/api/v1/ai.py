@@ -54,6 +54,7 @@ class TurnOut(BaseModel):
     messages: list[MessageOut]  # this turn: question, tool calls and results, answer
     pending_actions: list[ActionOut]  # cards to show with Confirm / Cancel
     tool_calls: int
+    seconds: float = 0  # how long the butler took
 
 
 class StartIn(BaseModel):
@@ -133,7 +134,14 @@ def ask(conversation_id: uuid.UUID, body: AskIn, p: CurrentUser, db: DB) -> Turn
         messages=[_msg(m) for m in turn["messages"]],
         pending_actions=[_action(a) for a in turn["pending_actions"]],
         tool_calls=turn["tool_calls"],
+        seconds=turn["seconds"],
     )
+
+
+@router.post("/conversations/{conversation_id}/stop", status_code=204)
+def stop(conversation_id: uuid.UUID, p: CurrentUser, db: DB) -> None:
+    """Stop the question this conversation is working on (it ends after its current step)."""
+    butler.stop(db, p, conversation_id)
 
 
 @router.get("/actions")

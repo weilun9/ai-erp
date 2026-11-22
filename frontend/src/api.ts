@@ -74,11 +74,18 @@ export async function logout(): Promise<void> {
   token = null;
 }
 
+/** The caller's stop signal and/or a time limit, whichever comes first. */
+function signalOf(stop?: AbortSignal, timeoutMs?: number): AbortSignal | undefined {
+  const timer = timeoutMs ? AbortSignal.timeout(timeoutMs) : undefined;
+  if (stop && timer) return AbortSignal.any([stop, timer]);
+  return stop ?? timer;
+}
+
 type Query = Record<string, string | number | boolean | undefined | null>;
 
 export async function api<T>(
   path: string,
-  opts: { method?: string; body?: unknown; query?: Query; timeoutMs?: number } = {},
+  opts: { method?: string; body?: unknown; query?: Query; timeoutMs?: number; signal?: AbortSignal } = {},
 ): Promise<T> {
   const qs = opts.query
     ? "?" + new URLSearchParams(
@@ -97,7 +104,7 @@ export async function api<T>(
       },
       body: opts.body !== undefined ? JSON.stringify(opts.body) : undefined,
       // a dead connection can take many seconds to fail; the till cannot wait that long
-      signal: opts.timeoutMs ? AbortSignal.timeout(opts.timeoutMs) : undefined,
+      signal: signalOf(opts.signal, opts.timeoutMs),
     });
   let res = await send();
   if (res.status === 401 && (await refresh())) res = await send();

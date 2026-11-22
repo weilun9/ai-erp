@@ -1,34 +1,11 @@
 import { useEffect, useRef, useState } from "react";
-import { useSearchParams } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import DOMPurify from "dompurify";
 import { marked } from "marked";
-import { ApiError, api, money } from "../api";
+import { api, money } from "../api";
 import { useSession } from "../session";
-
-interface Conversation { id: string; title: string; updated_at: string }
-interface ToolCall { name: string; arguments: unknown }
-interface Message {
-  id: number;
-  role: "user" | "assistant" | "tool";
-  content: string | null;
-  tool_calls: ToolCall[] | null;
-}
-interface Action {
-  id: string;
-  conversation_id: string | null;
-  status: string;
-  summary: {
-    action: string;
-    customer?: string;
-    supplier?: string;
-    store?: string;
-    date?: string;
-    lines?: { item: string; uom: string; qty: string; unit_price: string }[];
-    estimated_subtotal?: string | null;
-    checks?: string[];
-  };
-  error: string | null;
-}
+import { butler, useButler } from "../butlerStore";
+import type { Action } from "../butlerStore";
 
 // The model's answers are Markdown (tables, bold); rendered, then sanitized.
 function Markdown({ text }: { text: string }) {
@@ -51,8 +28,20 @@ const TOOL_LABEL: Record<string, string> = {
   draft_document: "draft",
 };
 
-function ActionCard({ a, onDone }: { a: Action; onDone: (a: Action) => void }) {
+/** Seconds since `since`, ticking ten times a second while it runs. */
+export function useElapsed(since: number | null): number {
+  const [now, setNow] = useState(Date.now());
+  useEffect(() => {
+    if (!since) return;
+    const h = window.setInterval(() => setNow(Date.now()), 100);
+    return () => window.clearInterval(h);
+  }, [since]);
+  return since ? Math.max(0, (now - since) / 1000) : 0;
+}
+
+function ActionCard({ a }: { a: Action }) {
   const { t } = useSession();
+  const nav = useNavigate();
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const s = a.summary;
@@ -60,7 +49,12 @@ function ActionCard({ a, onDone }: { a: Action; onDone: (a: Action) => void }) {
     setBusy(true);
     setErr(null);
     try {
-      onDone(await api<Action>(`/ai/actions/${a.id}/${what}`, { method: "POST" }));
+      const done = await api<Action>(`/ai/actions/${a.id}/${what}`, { method: "POST" });
+      butler.updateAction(done);
+      // the draft is made: open it, where one more Agree saves and posts it
+      if (what === "confirm" && done.status === "CONFIRMED" && done.result?.doc_id) {
+        nav(`/docs/${done.result.doc_type}/${done.result.doc_id}?ai=1`);
+      }
     } catch (e) {
       setErr(e instanceof Error ? e.message : String(e));
     } finally {
@@ -97,9 +91,19 @@ function ActionCard({ a, onDone }: { a: Action; onDone: (a: Action) => void }) {
       {a.error && <div className="error">{a.error}</div>}
       {err && <div className="error">{err}</div>}
       {a.status === "PENDING" && (
+        <>
+          <span className="muted small">{t("aiAgreeHint")}</span>
+          <div className="row" style={{ justifyContent: "flex-end" }}>
+            <button className="btn ghost" disabled={busy} onClick={() => decide("cancel")}>{t("cancel")}</button>
+            <button className="btn green" disabled={busy} onClick={() => decide("confirm")}>{t("aiAgreeOpen")}</button>
+          </div>
+        </>
+      )}
+      {a.status === "CONFIRMED" && a.result?.doc_id && (
         <div className="row" style={{ justifyContent: "flex-end" }}>
-          <button className="btn ghost" disabled={busy} onClick={() => decide("cancel")}>{t("cancel")}</button>
-          <button className="btn green" disabled={busy} onClick={() => decide("confirm")}>{t("confirm")}</button>
+          <button className="btn ghost" onClick={() => nav(`/docs/${a.result!.doc_type}/${a.result!.doc_id}?ai=1`)}>
+            {t("aiOpenDoc")}
+          </button>
         </div>
       )}
     </div>
@@ -109,95 +113,60 @@ function ActionCard({ a, onDone }: { a: Action; onDone: (a: Action) => void }) {
 export function Butler() {
   const { t } = useSession();
   const [params, setParams] = useSearchParams();
-  const [convs, setConvs] = useState<Conversation[]>([]);
-  const [current, setCurrent] = useState<string | null>(null);
-  const [messages, setMessages] = useState<Message[]>([]);
-  const [actions, setActions] = useState<Action[]>([]);
+  const st = useButler();
   const [text, setText] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const bottom = useRef<HTMLDivElement>(null);
-  const asked = useRef(false);
-
-  const loadConvs = () => api<Conversation[]>("/ai/conversations").then(setConvs);
-
-  async function open(id: string) {
-    setCurrent(id);
-    setError(null);
-    const [msgs, pending] = await Promise.all([
-      api<Message[]>(`/ai/conversations/${id}/messages`),
-      api<Action[]>("/ai/actions"),
-    ]);
-    setMessages(msgs);
-    setActions(pending.filter((a) => a.conversation_id === id));
-  }
-
-  async function send(content: string) {
-    if (!content.trim() || busy) return;
-    setBusy(true);
-    setError(null);
-    setText("");
-    let id = current;
-    setMessages((m) => [...m, { id: -Date.now(), role: "user", content, tool_calls: null }]);
-    try {
-      if (!id) {
-        id = (await api<Conversation>("/ai/conversations", { method: "POST", body: {} })).id;
-        setCurrent(id);
-      }
-      const turn = await api<{ messages: Message[]; pending_actions: Action[] }>(
-        `/ai/conversations/${id}/messages`, { method: "POST", body: { content } });
-      setMessages((m) => [...m.filter((x) => x.id > 0), ...turn.messages]);
-      setActions((a) => [...a, ...turn.pending_actions]);
-      loadConvs();
-    } catch (e) {
-      setError(e instanceof ApiError && e.details.settings ? t("butlerOff")
-        : e instanceof Error ? e.message : String(e));
-    } finally {
-      setBusy(false);
-    }
-  }
+  const busy = st.busySince !== null;
+  const elapsed = useElapsed(st.busySince);
 
   useEffect(() => {
-    loadConvs();
+    butler.loadConvs();
     const ask = params.get("ask");
-    if (ask && !asked.current) {
-      asked.current = true;
+    if (ask) {
       setParams({}, { replace: true });
       setText(ask);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
     // braces: newer browsers return a Promise here, and React must get no return value
     bottom.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages, actions, busy]);
+  }, [st.messages, st.actions, busy]);
+
+  const send = () => {
+    if (!text.trim() || busy) return;
+    const content = text;
+    setText("");
+    butler.send(content);
+  };
 
   return (
     <div className="butler">
       <aside className="chats glass">
-        <button className="btn" onClick={() => { setCurrent(null); setMessages([]); setActions([]); }}>
-          + {t("newChat")}
-        </button>
+        <button className="btn" disabled={busy} onClick={() => butler.newChat()}>+ {t("newChat")}</button>
         <div className="muted" style={{ margin: "8px 4px 0" }}>{t("chats")}</div>
-        {convs.map((c) => (
-          <button key={c.id} className={c.id === current ? "on" : ""} onClick={() => open(c.id)}
-                  title={c.title}>{c.title}</button>
+        {st.convs.map((c) => (
+          <button key={c.id} className={c.id === st.current ? "on" : ""} onClick={() => butler.open(c.id)}
+                  title={c.title}>
+            {c.id === st.busyConv && <span className="think-dot" aria-hidden="true" />}{c.title}
+          </button>
         ))}
       </aside>
       <section className="chat glass">
         <div className="messages">
-          {messages.length === 0 && !busy && (
+          {st.messages.length === 0 && !busy && (
             <div className="center" style={{ minHeight: "40vh", textAlign: "center" }}>
               <div>
                 <div className="plus" style={{ margin: "0 auto 12px", width: 64, height: 64,
                   borderRadius: "50%", display: "grid", placeItems: "center", fontSize: 30,
-                  background: "rgba(255,255,255,0.08)" }}>✦</div>
+                  background: "var(--fill)" }}>✦</div>
                 <h2 style={{ margin: 0 }}>{t("askButler")}</h2>
                 <p className="muted">{t("askPlaceholder")}</p>
               </div>
             </div>
           )}
-          {messages.map((m) => {
+          {st.messages.map((m) => {
             if (m.role === "tool") return null;
             if (m.role === "assistant" && m.tool_calls?.length) {
               return (
@@ -211,25 +180,35 @@ export function Butler() {
             return (
               <div key={m.id} className={`msg ${m.role}`}>
                 {m.role === "assistant" ? <Markdown text={m.content ?? ""} /> : m.content}
+                {m.role === "assistant" && st.thought[m.id] !== undefined && (
+                  <div className="thought">{t("aiThoughtFor").replace("{s}", st.thought[m.id].toFixed(1))}</div>
+                )}
               </div>
             );
           })}
-          {actions.map((a) => (
-            <ActionCard key={a.id} a={a}
-                        onDone={(n) => setActions((xs) => xs.map((x) => (x.id === n.id ? n : x)))} />
-          ))}
-          {busy && <div className="msg assistant dots">{t("thinking")} <span>●</span><span>●</span><span>●</span></div>}
-          {error && <div className="error">{error}</div>}
+          {st.actions.map((a) => <ActionCard key={a.id} a={a} />)}
+          {busy && (st.busyConv === st.current || st.busyConv === null) && (
+            <div className="msg assistant dots">
+              {t("thinking")} <span>●</span><span>●</span><span>●</span>
+              <span className="think-time">{elapsed.toFixed(1)}s</span>
+            </div>
+          )}
+          {st.errorKind === "off" && <div className="error">{t("butlerOff")}</div>}
+          {st.error && <div className="error">{st.error}</div>}
           <div ref={bottom} />
         </div>
-        <form className="composer" onSubmit={(e) => { e.preventDefault(); send(text); }}>
+        <form className="composer" onSubmit={(e) => { e.preventDefault(); send(); }}>
           <textarea value={text} placeholder={t("askPlaceholder")} rows={1}
                     onChange={(e) => setText(e.target.value)}
                     onKeyDown={(e) => {
-                      if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(text); }
+                      if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); }
                     }} />
-          <button className="round-btn" style={{ width: 48, height: 48 }} disabled={busy}
-                  aria-label={t("send")}>➤</button>
+          {busy ? (
+            <button type="button" className="round-btn stop-btn" style={{ width: 48, height: 48 }}
+                    aria-label={t("aiStop")} title={t("aiStop")} onClick={() => butler.stop()}>■</button>
+          ) : (
+            <button className="round-btn" style={{ width: 48, height: 48 }} aria-label={t("send")}>➤</button>
+          )}
         </form>
       </section>
     </div>

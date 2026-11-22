@@ -428,17 +428,18 @@ def test_openai_compatible_client_sends_tools_and_reads_tool_calls(monkeypatch) 
                 "usage": {"prompt_tokens": 321, "completion_tokens": 12},
             }
 
-    def fake_post(url, json, headers, timeout):
-        sent.update(url=url, body=json, headers=headers)
+    client = llm.OpenAICompatible("https://api.example.com/", "k-1", "deepseek-chat", 5)
+
+    def fake_post(url, json):  # the kept-alive client carries the key header
+        sent.update(url=url, body=json, headers=dict(client._http.headers))
         return Resp()
 
-    monkeypatch.setattr(llm.httpx, "post", fake_post)
-    client = llm.OpenAICompatible("https://api.example.com/", "k-1", "deepseek-chat", 5)
+    monkeypatch.setattr(client._http, "post", fake_post)
     schema = [llm.tool_schema("search_items", "find", {"type": "object", "properties": {}})]
     reply = client.complete([{"role": "user", "content": "milo?"}], schema)
 
     assert sent["url"] == "https://api.example.com/chat/completions"
-    assert sent["headers"]["Authorization"] == "Bearer k-1"
+    assert sent["headers"]["authorization"] == "Bearer k-1"
     assert sent["body"]["tools"] == schema and sent["body"]["tool_choice"] == "auto"
     assert reply.tool_calls[0].as_dict() == {
         "id": "c1",
@@ -462,3 +463,47 @@ def test_card_carries_the_systems_own_stock_and_credit_checks(store, client, mod
         "Stock short: MILO MILO has 48 PCS here, this needs 72 PCS (short 24)",
         "Credit limit: owes RM 0.00 now, RM 165.00 with this (limit RM 100.00)",
     ]
+
+
+# --- stop, timing, history -------------------------------------------------------------------
+
+
+def test_stop_ends_the_turn_after_its_current_step(store, client, model) -> None:  # noqa: F811
+    h = store["h"]
+    conv = client.post(f"{AI}/conversations", json={}, headers=h).json()["id"]
+
+    class PressesStop(Scripted):
+        def complete(self, messages, tools, tool_choice="auto"):
+            # the user presses Stop while the model is thinking (another request)
+            assert client.post(f"{AI}/conversations/{conv}/stop", headers=h).status_code == 204
+            return super().complete(messages, tools, tool_choice)
+
+    m = PressesStop(("tool", "search_items", {"q": "MILO"}), ("say", "never said"))
+    llm.set_chat_model(m)
+    try:
+        r = client.post(f"{AI}/conversations/{conv}/messages", json={"content": "Milo?"}, headers=h)
+    finally:
+        llm.reset_chat_model()
+    turn = _ok(r)
+    assert turn["messages"][-1]["content"] == "Stopped." and len(m.seen) == 1
+    assert turn["seconds"] >= 0
+
+    # the next question runs normally again
+    model(("say", "hello"))
+    assert _ok(_chat(client, h, "hi", conv)[0])["messages"][-1]["content"] == "hello"
+
+
+def test_earlier_tool_results_are_shortened_in_the_history(store, client, model) -> None:  # noqa: F811
+    h = store["h"]
+    big = ("tool", "search_items", {"q": "M"})
+    model(big, ("say", "found"))
+    _, conv = _chat(client, h, "first")
+    with SessionLocal() as db:  # make the stored result long
+        from app.models import Message
+
+        db.execute(update(Message).where(Message.role == "tool").values(content="x" * 5000))
+        db.commit()
+    m = model(("say", "ok"))
+    _ok(_chat(client, h, "second", conv)[0])
+    tool_msgs = [x for x in m.seen[0][0] if x["role"] == "tool"]
+    assert tool_msgs and all(len(x["content"]) < 800 for x in tool_msgs)

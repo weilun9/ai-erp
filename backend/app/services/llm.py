@@ -52,6 +52,12 @@ class OpenAICompatible:
     def __init__(self, base_url: str, api_key: str, model: str, timeout: float) -> None:
         self.base_url = base_url.rstrip("/")
         self.api_key, self.name, self.timeout = api_key, model, timeout
+        # one kept-alive connection: each tool round skips a new TLS handshake
+        self._http = httpx.Client(
+            timeout=timeout,
+            limits=httpx.Limits(max_keepalive_connections=4, keepalive_expiry=120),
+            headers={"Authorization": f"Bearer {api_key}"},
+        )
 
     def complete(
         self, messages: list[dict[str, Any]], tools: list[dict[str, Any]], tool_choice: str = "auto"
@@ -62,12 +68,7 @@ class OpenAICompatible:
             body["tool_choice"] = tool_choice  # "none" = must answer in words now
         started = time.monotonic()
         try:
-            resp = httpx.post(
-                f"{self.base_url}/chat/completions",
-                json=body,
-                headers={"Authorization": f"Bearer {self.api_key}"},
-                timeout=self.timeout,
-            )
+            resp = self._http.post(f"{self.base_url}/chat/completions", json=body)
         except httpx.HTTPError as exc:
             raise LlmError(f"Model endpoint unreachable: {exc}") from exc
         if resp.status_code != 200:
