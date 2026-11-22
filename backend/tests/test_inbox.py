@@ -519,6 +519,17 @@ def test_scan_token_lets_an_app_upload_into_the_queue(mighty, client) -> None:
     queue = client.get(IN, params={"queue": True}, headers=h).json()
     assert up.json()["id"] in [f["id"] for f in queue["items"]]
 
+    # rejected on the scan screen, then sent again: it comes back to the queue
+    r = client.post(f"{IN}/{up.json()['id']}/reject", json={"reason": "blurry"}, headers=h)
+    assert r.status_code == 200, r.text
+    back = client.post(
+        f"{IN}/remote", files={"file": ("x.jpg", _png("yellow"), "image/jpeg")}, headers=app_h
+    )
+    assert back.status_code == 201 and back.json()["already_uploaded"] is False
+    assert back.json()["id"] == up.json()["id"] and back.json()["status"] == "NEW"
+    queue = client.get(IN, params={"queue": True}, headers=h).json()
+    assert up.json()["id"] in [f["id"] for f in queue["items"]]
+
     # the token only uploads: it is not a web login, and a web token is not a scan token
     assert client.get("/api/v1/me", headers=app_h).status_code == 401
     assert client.get(f"{IN}/remote/ping", headers=h).status_code == 401

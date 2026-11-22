@@ -95,6 +95,17 @@ def upload(
     existing = db.scalar(
         select(InboxFile).where(InboxFile.company_id == p.company_id, InboxFile.sha256 == sha)
     )
+    if existing is not None and existing.status == "REJECTED":
+        # sent again after it was rejected: someone wants it handled after all - back to the queue
+        existing.status, existing.note = "NEW", None
+        existing.source, existing.uploaded_by = source, p.user_id
+        if location_id is not None:
+            existing.location_id = location_id
+        if hint in KINDS:
+            existing.doc_kind = hint
+        audit.record(db, p, "requeue", "pur.inbox_file", existing.id, after={"source": source})
+        db.commit()
+        return existing, False
     if existing is not None:
         return existing, True
 
