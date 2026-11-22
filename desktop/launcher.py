@@ -197,16 +197,33 @@ def ensure_database(cfg: dict[str, str], say) -> None:
         r = _docker("start", CONTAINER)
         if r.returncode != 0:
             raise RuntimeError(f"Could not start the database container: {r.stderr.strip()[:300]}")
-    for _ in range(60):
-        if (
-            _docker(
-                "exec", CONTAINER, "pg_isready", "-U", "erp", "-d", "erp", timeout=15
-            ).returncode
-            == 0
-        ):
+    # Ready inside the container is not enough: right after Docker Desktop starts, its port
+    # forwarding to 127.0.0.1 can still drop connections. Wait until this program connects.
+    import psycopg
+
+    last = ""
+    for _ in range(90):
+        if _docker(
+            "exec", CONTAINER, "pg_isready", "-U", "erp", "-d", "erp", timeout=15
+        ).returncode:
+            time.sleep(1)
+            continue
+        try:
+            with psycopg.connect(
+                host="127.0.0.1",
+                port=DB_PORT,
+                user="erp",
+                password=cfg["POSTGRES_PASSWORD"],
+                dbname="erp",
+                connect_timeout=5,
+            ) as conn:
+                conn.execute("SELECT 1")
             return
-        time.sleep(1)
-    raise RuntimeError("The database did not become ready.")
+        except psycopg.OperationalError as exc:
+            last = str(exc).strip().splitlines()[0]
+            log.info("database not reachable yet: %s", last)
+            time.sleep(1)
+    raise RuntimeError(f"The database did not become ready. {last}")
 
 
 def stop_everything(started_docker: bool) -> None:
