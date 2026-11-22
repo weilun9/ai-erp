@@ -441,6 +441,10 @@ def main() -> None:
 
     import webview
 
+    # Excel templates, accounting exports, PDFs: let the window save files (pywebview cancels
+    # downloads unless told otherwise); Windows asks where, starting in Downloads
+    webview.settings["ALLOW_DOWNLOADS"] = True
+
     cfg = load_config()
     env = app_env(cfg)
     os.environ.update(env)
