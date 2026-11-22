@@ -26,7 +26,7 @@ from sqlalchemy.orm import Session
 from app.api.v1 import finance, locations, masterdata, purchasing, sales, stock
 from app.core.errors import AppError, NotFound
 from app.models import Customer, Item, Location, Supplier
-from app.services import kb, pos, reports
+from app.services import app_guide, kb, pos, reports
 from app.services.auth import Principal
 
 MAX_ROWS = 50
@@ -728,6 +728,20 @@ TOOLS: list[Tool] = [
         {"type": "object", "properties": {"query": {"type": S}}, "required": ["query"]},
         t_knowledge,
         all_of=("ai.kb.read",),
+    ),
+    Tool(
+        "how_to",
+        "The user guide of THIS system: steps for a task (sales invoice, goods received, "
+        "receipt, till, scan, new item, promotion, labels, bank reconciliation, SST...) and the "
+        "page to open. Use it for every 'how do I / where is / 怎么 / 如何' question about "
+        "using the system. Give the steps briefly and put link_markdown in the answer so the "
+        "user opens the page in one click; if butler_can_draft_it, offer to fill it in for them.",
+        {
+            "type": "object",
+            "properties": {"topic": {"type": S, "description": "task, e.g. 'sales invoice'"}},
+            "required": ["topic"],
+        },
+        lambda db, p, a: app_guide.find(p, a.get("topic", "")),
     ),
     Tool(
         "draft_document",

@@ -7,10 +7,24 @@ import { useSession } from "../session";
 import { butler, useButler } from "../butlerStore";
 import type { Action } from "../butlerStore";
 
-// The model's answers are Markdown (tables, bold); rendered, then sanitized.
+// The model's answers are Markdown (tables, bold); rendered, then sanitized. Links to pages
+// of this app (the user guide's "Open ..." links) open in place, without reloading.
 function Markdown({ text }: { text: string }) {
+  const nav = useNavigate();
   const html = DOMPurify.sanitize(marked.parse(text, { async: false }) as string);
-  return <div dangerouslySetInnerHTML={{ __html: html }} />;
+  return (
+    <div
+      dangerouslySetInnerHTML={{ __html: html }}
+      onClick={(e) => {
+        const a = (e.target as HTMLElement).closest("a");
+        const href = a?.getAttribute("href") ?? "";
+        if (href.startsWith("/") && !href.startsWith("//")) {
+          e.preventDefault();
+          nav(href);
+        }
+      }}
+    />
+  );
 }
 
 const TOOL_LABEL: Record<string, string> = {
@@ -26,6 +40,7 @@ const TOOL_LABEL: Record<string, string> = {
   get_my_shift: "shift",
   search_knowledge: "knowledge",
   draft_document: "draft",
+  how_to: "guide",
 };
 
 /** Seconds since `since`, ticking ten times a second while it runs. */

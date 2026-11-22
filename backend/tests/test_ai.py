@@ -507,3 +507,18 @@ def test_earlier_tool_results_are_shortened_in_the_history(store, client, model)
     _ok(_chat(client, h, "second", conv)[0])
     tool_msgs = [x for x in m.seen[0][0] if x["role"] == "tool"]
     assert tool_msgs and all(len(x["content"]) < 800 for x in tool_msgs)
+
+
+def test_how_to_gives_steps_and_a_link_to_the_page(store, client, model) -> None:  # noqa: F811
+    m = model(("tool", "how_to", {"topic": "insert invoice"}), ("say", "see steps"))
+    _ok(_chat(client, store["h"], "怎么insert invoice")[0])
+    res = m.results()[0]["result"]
+    assert res["topic"] == "sales-invoice" and res["page"] == "/docs/sales-invoice/new"
+    assert res["link_markdown"] == "[Open Sales invoice](/docs/sales-invoice/new)"
+    assert res["butler_can_draft_it"] is True and len(res["steps"]) >= 4
+
+    # a cashier is only shown what they may do
+    m = model(("tool", "how_to", {"topic": "purchase invoice"}), ("say", "no"))
+    _ok(_chat(client, login(client, "cashier1"), "how do I receive goods?")[0])
+    res = m.results()[0]["result"]
+    assert res["error"] == "NO_SUCH_TOPIC" and "till" in [t["key"] for t in res["topics"]]
