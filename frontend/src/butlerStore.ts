@@ -115,7 +115,8 @@ export const butler = {
       } else if (e instanceof ApiError && e.details.settings) {
         set({ error: "", errorKind: "off" });
       } else {
-        set({ error: e instanceof Error ? e.message : String(e) });
+        const why = e instanceof Error && e.message ? e.message : String(e || "no answer");
+        set({ error: `The AI butler could not answer: ${why}. Try again.` });
       }
     } finally {
       controller = null;

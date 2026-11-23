@@ -28,8 +28,9 @@ async function parse(res: Response): Promise<unknown> {
   }
   if (!res.ok) {
     const e = body?.error ?? {};
-    throw new ApiError(res.status, e.code ?? "HTTP_" + res.status, e.message ?? res.statusText,
-      e.details ?? {});
+    // HTTP/2 has no status text: never end up with an empty message
+    throw new ApiError(res.status, e.code ?? "HTTP_" + res.status,
+      e.message || res.statusText || `Server error (${res.status})`, e.details ?? {});
   }
   return body;
 }
